@@ -40,7 +40,24 @@ Modelo Local de IA/
 
 ## 🎯 Uso Rápido
 
-### Opción 1: Interfaz Interactiva (Recomendado)
+### Dataset Incluido
+
+El proyecto incluye un dataset real de inmuebles de Colombia (`inmuebles_sintetico_colombia_plus.csv`) con datos de:
+- 🏙️ Ciudades: Bogotá, Medellín, Cali, Cartagena, Barranquilla, Bucaramanga, Pereira, Manizales
+- 🏢 Tipos: Apartamentos, Casas, Oficinas, Bodegas, Lotes, Fincas
+- 💰 Precios reales en COP
+- 📍 Ubicaciones con coordenadas GPS
+- 🏊 Amenidades: piscina, gimnasio, BBQ, zonas verdes, seguridad
+
+### Opción 1: Usar Dataset Real de Colombia
+
+```bash
+python ejemplo_dataset_colombia.py
+```
+
+Este script analiza el dataset real y muestra ejemplos de búsquedas específicas para Colombia.
+
+### Opción 2: Interfaz Interactiva
 
 Ejecuta la interfaz de línea de comandos:
 
