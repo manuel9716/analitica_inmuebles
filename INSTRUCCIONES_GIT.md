@@ -1,29 +1,46 @@
-# 📝 Instrucciones para Conectar con GitHub
+# 📝 Instrucciones para Subir a GitHub
 
 ## ✅ Estado Actual
 
 El repositorio local ya está configurado y listo:
 - ✅ Git inicializado
 - ✅ Rama `main` creada
-- ✅ Todos los archivos agregados y commiteados
+- ✅ Todos los archivos agregados y commiteados (2 commits)
 - ✅ Remote `origin` configurado: `https://github.com/Busco-Facil/Analitica_Inmuebles.git`
 
-## 🔧 Pasos para Completar la Conexión
+## ⚠️ Situación Detectada
 
-### Opción 1: Si el repositorio NO existe en GitHub
+El repositorio `https://github.com/Busco-Facil/Analitica_Inmuebles.git` no es accesible actualmente. Esto puede deberse a:
 
-1. **Crear el repositorio en GitHub:**
-   - Ve a https://github.com/Busco-Facil
-   - Haz clic en "New repository"
-   - Nombre: `Analitica_Inmuebles`
-   - **NO inicialices con README, .gitignore o licencia** (ya los tenemos localmente)
-   - Haz clic en "Create repository"
+1. **El repositorio no existe todavía** → Necesitas crearlo
+2. **El repositorio es privado** → Necesitas autenticación
+3. **No tienes permisos** → Necesitas ser agregado como colaborador
 
-2. **Hacer push del código:**
-   ```bash
-   cd "/Users/manuel97/Documents/Proyectos/Busco Facil/Modelo Local de IA"
-   git push -u origin main
-   ```
+## 🚀 SOLUCIÓN: Pasos para Subir el Código
+
+### PASO 1: Crear el Repositorio en GitHub
+
+1. **Inicia sesión en GitHub**: https://github.com/login
+2. **Ve a la organización**: https://github.com/Busco-Facil
+3. **Crea el repositorio**:
+   - Click en "New repository" (botón verde)
+   - **Repository name**: `Analitica_Inmuebles` (exactamente este nombre)
+   - **Description**: "Modelo de IA para análisis y categorización de inmuebles"
+   - **Visibilidad**: Pública o Privada (según prefieras)
+   - ⚠️ **MUY IMPORTANTE**: NO marques ninguna de estas opciones:
+     - ❌ NO marques "Add a README file"
+     - ❌ NO marques "Add .gitignore"
+     - ❌ NO marques "Choose a license"
+   - Click en "Create repository"
+
+### PASO 2: Hacer Push del Código
+
+Una vez creado el repositorio en GitHub, ejecuta:
+
+```bash
+cd "/Users/manuel97/Documents/Proyectos/Busco Facil/Modelo Local de IA"
+git push -u origin main
+```
 
 ### Opción 2: Si el repositorio YA existe en GitHub
 
