@@ -1,0 +1,61 @@
+id,tipo,ubicacion,habitaciones,banos,area_m2,area_terreno_m2,antiguedad_anos,pisos,estacionamientos,estado,orientacion,tiene_jardin,tiene_terraza,tiene_balcon,tiene_piscina,tiene_gimnasio,tiene_seguridad,cerca_transporte,cerca_escuelas,cerca_comercios,precio,fecha_publicacion,disponible,tipo_encoded,ubicacion_encoded,estado_encoded,orientacion_encoded,fecha_publicacion_encoded
+1,Apartamento,Este,2,4,138.6,0.0,41.3,2,0,Regular,Sur,False,False,True,False,False,False,True,False,True,91000.0,2025-10-05 07:46:22.397649,True,0,1,4,5,136
+17,Apartamento,Norte,1,3,180.1,0.0,14.3,3,0,Regular,Norte,False,False,True,False,False,True,True,False,True,169000.0,2025-03-03 07:46:22.397649,True,0,2,4,3,49
+18,Apartamento,Suburbio,1,4,99.6,0.0,9.8,1,2,Excelente,Norte,False,False,True,False,True,True,False,True,True,150000.0,2025-03-11 07:46:22.397649,True,0,4,2,3,54
+19,Apartamento,Sur,5,3,30.0,0.0,1.4,2,0,Nuevo,Sur,False,False,True,False,False,False,True,True,True,217000.0,2025-07-28 07:46:22.397649,True,0,5,3,5,106
+20,Apartamento,Oeste,4,2,69.6,0.0,0.3,3,2,Excelente,Noreste,False,True,True,True,False,False,True,True,True,212000.0,2025-09-16 07:46:22.397649,True,0,3,2,1,129
+23,Apartamento,Centro,3,4,120.9,0.0,15.9,2,0,Excelente,Sur,True,False,True,False,False,False,True,False,False,246000.0,2025-02-21 07:46:22.397649,True,0,0,2,5,45
+24,Apartamento,Este,3,2,203.8,0.0,6.6,2,1,Regular,Norte,True,False,True,False,False,True,True,True,False,230000.0,2025-10-10 07:46:22.397649,True,0,1,4,3,140
+25,Apartamento,Centro,2,2,136.3,0.0,1.2,3,1,Regular,Sureste,False,False,False,False,False,False,False,True,True,239000.0,2025-11-06 07:46:22.397649,True,0,0,4,6,151
+28,Apartamento,Este,3,2,30.0,0.0,5.6,3,3,Excelente,Norte,True,True,False,False,False,False,True,True,True,166000.0,2025-03-04 07:46:22.397649,True,0,1,2,3,50
+37,Apartamento,Zona Residencial,1,3,129.1,0.0,0.1,4,3,A Remodelar,Norte,False,False,True,True,False,True,False,True,True,215000.0,2025-04-03 07:46:22.397649,True,0,6,0,3,66
+40,Apartamento,Suburbio,3,1,77.5,0.0,6.5,2,3,Excelente,Norte,True,False,True,False,False,True,True,False,True,146000.0,2025-05-03 07:46:22.397649,True,0,4,2,3,74
+42,Apartamento,Suburbio,3,2,77.2,0.0,3.4,3,2,Bueno,Sur,True,False,False,False,False,True,True,False,True,147000.0,2024-12-29 07:46:22.397649,True,0,4,1,5,22
+45,Apartamento,Suburbio,3,1,143.9,0.0,15.1,3,2,Bueno,Noroeste,True,False,True,False,False,True,True,False,True,148000.0,2025-05-14 07:46:22.397649,True,0,4,1,2,78
+47,Apartamento,Sur,5,2,171.9,0.0,6.5,1,2,Bueno,Norte,True,False,True,False,False,True,False,False,True,286000.0,2025-09-17 07:46:22.397649,True,0,5,1,3,130
+48,Apartamento,Norte,3,2,94.5,0.0,1.1,2,1,Bueno,Sur,False,True,False,False,True,True,False,True,False,216000.0,2025-03-27 07:46:22.397649,True,0,2,1,5,61
+49,Apartamento,Oeste,6,2,106.5,0.0,2.8,3,0,Bueno,Noreste,True,True,False,True,False,False,False,True,False,162000.0,2024-12-04 07:46:22.397649,True,0,3,1,1,9
+60,Apartamento,Sur,1,4,57.8,0.0,4.3,2,1,Excelente,Este,False,False,False,False,False,True,True,False,True,151000.0,2025-09-03 07:46:22.397649,True,0,5,2,0,122
+61,Apartamento,Centro,4,2,31.1,0.0,0.3,1,2,Bueno,Noreste,False,False,True,False,False,False,True,True,True,196000.0,2025-02-18 07:46:22.397649,True,0,0,1,1,44
+62,Apartamento,Centro,2,2,194.8,0.0,0.8,2,2,A Remodelar,Sureste,False,False,False,False,False,False,True,True,False,202000.0,2025-11-07 07:46:22.397649,False,0,0,0,6,152
+64,Apartamento,Este,4,4,117.2,0.0,1.4,1,1,Bueno,Oeste,False,True,False,False,False,False,False,True,True,221000.0,2024-12-05 07:46:22.397649,True,0,1,1,4,10
+65,Apartamento,Suburbio,3,2,134.0,0.0,8.4,1,1,Regular,Suroeste,False,False,False,False,False,False,False,True,True,124000.0,2025-10-16 07:46:22.397649,True,0,4,4,7,143
+66,Apartamento,Oeste,5,2,63.7,0.0,11.7,1,0,Excelente,Sureste,False,True,False,False,False,True,True,True,True,163000.0,2025-03-08 07:46:22.397649,True,0,3,2,6,52
+79,Apartamento,Sur,5,3,70.5,0.0,12.5,2,2,A Remodelar,Sureste,True,True,True,False,False,False,False,False,True,120000.0,2025-02-27 07:46:22.397649,True,0,5,0,6,46
+83,Apartamento,Zona Residencial,2,1,35.4,0.0,0.8,3,1,Excelente,Sureste,False,False,False,False,False,True,True,True,True,145000.0,2025-10-27 07:46:22.397649,True,0,6,2,6,147
+85,Apartamento,Oeste,3,1,112.1,0.0,7.9,4,2,A Remodelar,Noroeste,True,False,True,False,False,True,True,True,True,127000.0,2024-12-18 07:46:22.397649,True,0,3,0,2,17
+86,Apartamento,Zona Residencial,4,1,98.7,0.0,17.0,1,1,Excelente,Oeste,False,True,False,False,False,False,True,False,True,267000.0,2025-09-19 07:46:22.397649,True,0,6,2,4,131
+90,Apartamento,Centro,1,2,123.7,0.0,13.2,3,2,Bueno,Suroeste,True,True,True,True,False,True,True,False,False,268000.0,2025-03-17 07:46:22.397649,True,0,0,1,7,57
+96,Apartamento,Suburbio,3,1,44.8,0.0,2.5,1,0,Excelente,Noroeste,True,False,False,False,False,True,True,False,True,128000.0,2025-10-30 07:46:22.397649,True,0,4,2,2,149
+97,Apartamento,Norte,3,3,107.7,0.0,37.2,2,2,Regular,Este,True,True,True,False,True,True,False,True,True,144000.0,2025-08-24 07:46:22.397649,True,0,2,4,0,119
+98,Apartamento,Zona Residencial,3,4,106.4,0.0,4.1,1,0,Nuevo,Noreste,False,False,False,False,False,False,True,True,True,315000.0,2025-03-04 07:46:22.397649,True,0,6,3,1,50
+103,Apartamento,Sur,4,1,212.4,0.0,8.1,1,1,Bueno,Sur,False,False,False,False,True,True,True,False,True,243000.0,2024-11-28 07:46:22.397649,True,0,5,1,5,8
+104,Apartamento,Norte,4,2,176.3,0.0,12.7,2,2,Bueno,Norte,True,False,False,False,False,False,False,True,False,281000.0,2025-04-22 07:46:22.397649,True,0,2,1,3,71
+107,Apartamento,Centro,1,2,248.7,0.0,36.8,2,0,Bueno,Norte,False,False,False,False,False,True,False,True,True,266000.0,2024-12-15 07:46:22.397649,True,0,0,1,3,15
+111,Apartamento,Suburbio,3,1,129.9,0.0,0.7,1,1,Bueno,Suroeste,True,False,False,False,True,False,False,True,False,181000.0,2025-02-28 07:46:22.397649,True,0,4,1,7,47
+120,Apartamento,Oeste,4,2,195.2,0.0,4.6,2,1,Nuevo,Sureste,False,True,False,False,False,True,False,True,True,326000.0,2025-03-18 07:46:22.397649,True,0,3,3,6,58
+123,Apartamento,Zona Residencial,1,1,182.3,0.0,20.2,4,1,Nuevo,Sur,True,True,True,False,True,True,True,False,True,279000.0,2025-03-26 07:46:22.397649,True,0,6,3,5,60
+126,Apartamento,Oeste,3,2,101.4,0.0,12.9,3,1,Bueno,Noreste,False,True,True,False,False,True,True,True,False,151000.0,2025-09-06 07:46:22.397649,False,0,3,1,1,123
+130,Apartamento,Suburbio,4,3,207.6,0.0,5.5,2,1,Bueno,Oeste,False,False,False,True,True,True,True,True,True,287000.0,2025-01-21 07:46:22.397649,True,0,4,1,4,33
+131,Apartamento,Este,3,3,166.8,0.0,3.2,3,0,Bueno,Sur,True,False,True,True,True,True,True,True,True,228000.0,2025-07-30 07:46:22.397649,True,0,1,1,5,108
+134,Apartamento,Zona Residencial,3,2,63.5,0.0,2.4,1,2,Bueno,Oeste,False,False,False,False,True,True,True,True,True,189000.0,2024-12-06 07:46:22.397649,False,0,6,1,4,11
+136,Apartamento,Norte,5,3,144.5,0.0,10.0,1,1,Excelente,Norte,False,False,False,False,False,True,True,True,True,321000.0,2025-01-29 07:46:22.397649,True,0,2,2,3,36
+137,Apartamento,Norte,2,2,58.9,0.0,13.2,3,1,Bueno,Oeste,False,False,False,False,False,False,True,True,True,135000.0,2025-09-29 07:46:22.397649,True,0,2,1,4,134
+139,Apartamento,Zona Residencial,1,2,108.0,0.0,12.6,2,2,Excelente,Noreste,False,True,True,False,True,True,True,False,True,198000.0,2025-10-26 07:46:22.397649,True,0,6,2,1,146
+142,Apartamento,Centro,2,2,142.2,0.0,2.7,2,1,Nuevo,Norte,False,False,True,False,False,False,True,True,True,393000.0,2024-12-14 07:46:22.397649,True,0,0,3,3,14
+143,Apartamento,Norte,2,2,102.0,0.0,35.5,2,1,Nuevo,Sureste,True,True,False,False,False,True,True,True,True,186000.0,2025-05-28 07:46:22.397649,True,0,2,3,6,86
+144,Apartamento,Zona Residencial,3,4,178.0,0.0,2.0,1,2,Regular,Sureste,False,False,True,False,False,True,False,True,True,253000.0,2025-05-26 07:46:22.397649,True,0,6,4,6,85
+145,Apartamento,Suburbio,4,2,65.9,0.0,19.3,2,2,Excelente,Suroeste,False,False,False,False,False,False,True,False,True,132000.0,2025-09-13 07:46:22.397649,True,0,4,2,7,127
+148,Apartamento,Norte,3,1,104.5,0.0,20.5,1,1,Regular,Sur,False,False,True,False,False,False,False,True,True,137000.0,2025-03-20 07:46:22.397649,True,0,2,4,5,59
+150,Apartamento,Suburbio,5,1,57.4,0.0,7.2,2,1,Bueno,Oeste,False,False,True,False,True,True,True,True,False,150000.0,2024-11-17 07:46:22.397649,False,0,4,1,4,3
+154,Apartamento,Suburbio,6,3,172.5,0.0,5.0,1,3,Regular,Sur,False,False,False,False,False,True,True,True,True,177000.0,2025-08-13 07:46:22.397649,True,0,4,4,5,113
+161,Apartamento,Oeste,6,4,30.0,0.0,35.0,2,0,Bueno,Sur,False,False,True,False,False,False,True,True,True,113000.0,2025-01-31 07:46:22.397649,True,0,3,1,5,38
+164,Apartamento,Este,4,2,115.2,0.0,0.8,4,2,Excelente,Noroeste,True,True,False,False,False,False,True,True,True,239000.0,2025-03-26 07:46:22.397649,True,0,1,2,2,60
+167,Apartamento,Este,3,4,118.1,0.0,4.1,2,0,Regular,Norte,True,False,False,False,True,False,True,True,True,173000.0,2025-07-29 07:46:22.397649,True,0,1,4,3,107
+173,Apartamento,Sur,3,2,135.4,0.0,1.8,1,3,Excelente,Oeste,False,False,False,True,True,True,True,True,True,338000.0,2025-09-19 07:46:22.397649,True,0,5,2,4,131
+178,Apartamento,Este,3,2,110.8,0.0,6.4,2,2,Regular,Noroeste,False,True,False,True,False,True,True,False,True,178000.0,2025-08-15 07:46:22.397649,True,0,1,4,2,115
+181,Apartamento,Sur,6,1,93.0,0.0,8.8,1,1,Nuevo,Noroeste,True,False,True,False,False,True,False,True,True,223000.0,2025-09-14 07:46:22.397649,True,0,5,3,2,128
+185,Apartamento,Este,2,2,140.4,0.0,3.1,2,1,Regular,Oeste,False,False,True,False,False,False,False,False,True,145000.0,2025-01-08 07:46:22.397649,True,0,1,4,4,28
+189,Apartamento,Oeste,5,2,132.8,0.0,0.4,4,1,Excelente,Suroeste,True,True,False,False,False,True,True,True,True,292000.0,2024-12-11 07:46:22.397649,True,0,3,2,7,13
+195,Apartamento,Centro,5,2,88.8,0.0,0.4,2,2,Regular,Noreste,False,True,False,False,True,False,True,False,False,248000.0,2024-12-17 07:46:22.397649,True,0,0,4,1,16
+196,Apartamento,Este,5,2,121.3,0.0,1.6,4,2,Nuevo,Noroeste,True,True,True,False,False,True,True,True,True,340000.0,2025-08-11 07:46:22.397649,True,0,1,3,2,111
