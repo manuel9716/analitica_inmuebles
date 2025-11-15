@@ -220,8 +220,12 @@ class ModeloInmuebles:
         # Preparar características
         caracteristicas_encoded = [col + '_encoded' for col in self.caracteristicas_categoricas]
         X_cols = self.caracteristicas_numericas + caracteristicas_encoded
-        X = self.df[X_cols]
-        
+        X = self.df[X_cols].copy()
+
+        # Asegurar que no haya NaN ni infinitos antes de escalar
+        X = X.replace([np.inf, -np.inf], np.nan)
+        X = X.fillna(X.mean(numeric_only=True)).fillna(0)
+
         # Escalar características
         X_scaled = self.scaler.fit_transform(X)
         

@@ -1,8 +1,8 @@
-# 🏠 Modelo de IA para Análisis y Categorización de Inmuebles
+# Modelo de IA para Análisis y Categorización de Inmuebles
 
 Sistema inteligente de análisis y categorización de inmuebles utilizando Machine Learning. Permite analizar datasets de propiedades, clasificar automáticamente por características, realizar búsquedas avanzadas y generar recomendaciones basadas en similitud.
 
-## 📑 Tabla de Contenidos
+## Tabla de Contenidos
 
 - [Características Principales](#-características-principales)
 - [Instalación](#-instalación)
@@ -39,7 +39,7 @@ Sistema inteligente de análisis y categorización de inmuebles utilizando Machi
 - [Contribuciones](#-contribuciones)
 - [Soporte](#-soporte)
 
-## 📋 Características Principales
+## Características Principales
 
 - **Análisis de Dataset**: Estadísticas descriptivas y exploración completa de datos
 - **Categorización Inteligente**: Clasificación automática de inmuebles por precio y características usando Random Forest
@@ -51,7 +51,7 @@ Sistema inteligente de análisis y categorización de inmuebles utilizando Machi
 - **Interfaz Interactiva**: CLI para búsquedas sin programar
 - **API REST**: Endpoints listos para integración web
 
-## 🚀 Instalación
+## Instalación
 
 ### Requisitos Previos
 - Python 3.8 o superior
@@ -66,7 +66,7 @@ Sistema inteligente de análisis y categorización de inmuebles utilizando Machi
 pip install -r requirements.txt
 ```
 
-## 📊 Estructura del Proyecto
+## Estructura del Proyecto
 
 ```
 Modelo Local de IA/

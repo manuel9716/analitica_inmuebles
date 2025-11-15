@@ -28,9 +28,16 @@ wheels/
 
 # Dataset y modelos generados
 dataset_inmuebles.csv
+inmuebles_wasi_real.csv
 *.pkl
 reporte_*.csv
+reporte.csv
 casas_familiares.csv
+inmuebles_similares.csv
+
+# Archivos de configuración con credenciales (IMPORTANTE: NO SUBIR)
+# config_wasi.py ya está en el repo pero con credenciales reales
+# Si necesitas hacer público el repo, crea config_wasi.example.py sin credenciales
 
 # IDE
 .vscode/
