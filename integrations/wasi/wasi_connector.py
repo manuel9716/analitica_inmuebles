@@ -205,20 +205,24 @@ class WasiConnector:
         
         for inmueble in inmuebles:
             try:
+                # Base de identificación y ubicación directa desde la API
+                direccion_raw = inmueble.get('address', '') or ''
+                ciudad_raw = inmueble.get('city', '') or ''
+
                 dato = {
                     # Identificación
                     'id': inmueble.get('id_property', ''),
                     'codigo': inmueble.get('code', ''),
                     
-                    # Tipo y negocio
-                    'tipo': inmueble.get('type', ''),
+                    # Tipo y negocio (tipo puede venir vacío desde la API)
+                    'tipo': inmueble.get('type', '') or '',
                     'tipo_negocio': inmueble.get('business_type', ''),
                     
                     # Ubicación
-                    'ciudad': inmueble.get('city', ''),
+                    'ciudad': ciudad_raw,
                     'zona': inmueble.get('zone', ''),
                     'barrio': inmueble.get('neighborhood', ''),
-                    'direccion': inmueble.get('address', ''),
+                    'direccion': direccion_raw,
                     'latitud': inmueble.get('latitude', 0),
                     'longitud': inmueble.get('longitude', 0),
                     
@@ -253,7 +257,39 @@ class WasiConnector:
                     # Fecha
                     'fecha_actualizacion': inmueble.get('updated_at', ''),
                 }
-                
+
+                # ==============================
+                # Normalización de ciudad
+                # ==============================
+                if not dato['ciudad'] and dato['direccion']:
+                    # Heurística: tomar la parte antes de la primera coma como ciudad
+                    posible_ciudad = str(dato['direccion']).split(',')[0].strip()
+                    # Evitar usar cadenas muy cortas o puramente numéricas como ciudad
+                    if posible_ciudad and not posible_ciudad.isnumeric():
+                        dato['ciudad'] = posible_ciudad
+
+                # ==============================
+                # Derivar tipo a partir del título si viene vacío
+                # ==============================
+                if not dato['tipo']:
+                    titulo_lower = str(dato['titulo']).lower()
+                    if 'apartamento' in titulo_lower or 'aparta-estudio' in titulo_lower or 'apartaestudio' in titulo_lower:
+                        dato['tipo'] = 'Apartamento'
+                    elif 'lote' in titulo_lower or 'terreno' in titulo_lower or 'lote ' in titulo_lower:
+                        dato['tipo'] = 'Lote'
+                    elif 'finca' in titulo_lower:
+                        dato['tipo'] = 'Finca'
+                    elif 'casa' in titulo_lower:
+                        dato['tipo'] = 'Casa'
+                    elif 'local' in titulo_lower:
+                        dato['tipo'] = 'Local'
+                    elif 'bodega' in titulo_lower:
+                        dato['tipo'] = 'Bodega'
+                    elif 'oficina' in titulo_lower or 'consultorio' in titulo_lower:
+                        dato['tipo'] = 'Oficina'
+                    elif 'hotel' in titulo_lower or 'hostel' in titulo_lower:
+                        dato['tipo'] = 'Hotel'
+
                 # Características adicionales (amenidades)
                 caracteristicas = inmueble.get('features', [])
                 if caracteristicas:

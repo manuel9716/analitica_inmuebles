@@ -3,7 +3,7 @@ API REST para el modelo de inmuebles con integración WASI
 Servidor Flask que expone endpoints para búsqueda de inmuebles con datos reales
 """
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory, make_response
 from flask_cors import CORS
 from modelo_inmuebles import ModeloInmuebles
 from integrations.wasi.wasi_connector import WasiConnector
@@ -121,17 +121,24 @@ def estadisticas():
     Retorna estadísticas generales del dataset
     """
     try:
+        df = modelo.df.copy()
+
+        # Asegurar que columnas numéricas clave sean realmente numéricas
+        for col in ['precio', 'area_total', 'habitaciones']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
         stats = {
-            'total_inmuebles': len(modelo.df),
+            'total_inmuebles': len(df),
             'ultima_sincronizacion': ultima_sincronizacion.isoformat() if ultima_sincronizacion else None,
-            'precio_promedio': float(modelo.df['precio'].mean()),
-            'precio_minimo': float(modelo.df['precio'].min()),
-            'precio_maximo': float(modelo.df['precio'].max()),
-            'precio_mediana': float(modelo.df['precio'].median()),
-            'distribucion_tipos': modelo.df['tipo'].value_counts().to_dict() if 'tipo' in modelo.df.columns else {},
-            'distribucion_ciudades': modelo.df['ciudad'].value_counts().to_dict() if 'ciudad' in modelo.df.columns else {},
-            'habitaciones_promedio': float(modelo.df['habitaciones'].mean()) if 'habitaciones' in modelo.df.columns else 0,
-            'area_promedio': float(modelo.df['area_total'].mean()) if 'area_total' in modelo.df.columns else 0
+            'precio_promedio': float(df['precio'].mean()) if 'precio' in df.columns else 0,
+            'precio_minimo': float(df['precio'].min()) if 'precio' in df.columns else 0,
+            'precio_maximo': float(df['precio'].max()) if 'precio' in df.columns else 0,
+            'precio_mediana': float(df['precio'].median()) if 'precio' in df.columns else 0,
+            'distribucion_tipos': df['tipo'].value_counts().to_dict() if 'tipo' in df.columns else {},
+            'distribucion_ciudades': df['ciudad'].value_counts().to_dict() if 'ciudad' in df.columns else {},
+            'habitaciones_promedio': float(df['habitaciones'].mean()) if 'habitaciones' in df.columns else 0,
+            'area_promedio': float(df['area_total'].mean()) if 'area_total' in df.columns else 0
         }
         return jsonify(stats)
     except Exception as e:
@@ -250,10 +257,15 @@ def tipos():
     try:
         if 'tipo' not in modelo.df.columns:
             return jsonify({'tipos': [], 'conteo': {}})
-        
-        tipos_disponibles = modelo.df['tipo'].unique().tolist()
-        conteo = modelo.df['tipo'].value_counts().to_dict()
-        
+
+        # Eliminar NaN y asegurar que los tipos sean strings
+        series_tipos = modelo.df['tipo'].dropna()
+        tipos_disponibles = [str(t) for t in series_tipos.unique().tolist()]
+
+        # Conteo sin NaN y con claves como string
+        conteo_raw = series_tipos.value_counts().to_dict()
+        conteo = {str(k): int(v) for k, v in conteo_raw.items()}
+
         return jsonify({
             'tipos': tipos_disponibles,
             'conteo': conteo
@@ -269,16 +281,29 @@ def ciudades():
     """
     try:
         if 'ciudad' not in modelo.df.columns:
-            return jsonify({'ciudades': [], 'conteo': {}})
-        
-        ciudades_disponibles = modelo.df['ciudad'].unique().tolist()
-        conteo = modelo.df['ciudad'].value_counts().to_dict()
-        precio_promedio = modelo.df.groupby('ciudad')['precio'].mean().to_dict()
-        
+            return jsonify({'ciudades': [], 'conteo': {}, 'precio_promedio': {}})
+
+        # Eliminar NaN y asegurar tipos válidos
+        df_ciudades = modelo.df.dropna(subset=['ciudad'])
+
+        ciudades_disponibles = [str(c) for c in df_ciudades['ciudad'].unique().tolist()]
+
+        conteo_raw = df_ciudades['ciudad'].value_counts().to_dict()
+        conteo = {str(k): int(v) for k, v in conteo_raw.items()}
+
+        # Precio promedio por ciudad (si existe columna precio)
+        if 'precio' in df_ciudades.columns:
+            precios = df_ciudades.copy()
+            precios['precio'] = pd.to_numeric(precios['precio'], errors='coerce')
+            precio_group = precios.groupby('ciudad')['precio'].mean().to_dict()
+            precio_promedio = {str(k): float(v) for k, v in precio_group.items() if pd.notna(v)}
+        else:
+            precio_promedio = {}
+
         return jsonify({
             'ciudades': ciudades_disponibles,
             'conteo': conteo,
-            'precio_promedio': {k: float(v) for k, v in precio_promedio.items()}
+            'precio_promedio': precio_promedio
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -290,13 +315,41 @@ def filtros_disponibles():
     Retorna todos los filtros disponibles para búsqueda
     """
     try:
+        df = modelo.df
+
+        # Helpers para listas sin NaN
+        def lista_sin_nan(col):
+            if col not in df.columns:
+                return []
+            return [str(v) for v in df[col].dropna().unique().tolist()]
+
+        def lista_int_sin_nan(col):
+            if col not in df.columns:
+                return []
+            serie = df[col].dropna().astype(str)
+            # Normalizar valores tipo '>10', '10+', etc. manteniendo solo la parte numérica
+            serie = serie.str.extract(r"(\d+)", expand=False)
+            numeros = pd.to_numeric(serie, errors='coerce').dropna().unique().tolist()
+            return [int(v) for v in sorted(numeros)]
+
+        rangos_numericos = {}
+        for col in ['precio', 'area_total', 'area_construida']:
+            if col in df.columns:
+                serie = pd.to_numeric(df[col], errors='coerce')
+                serie = serie.dropna()
+                if not serie.empty:
+                    rangos_numericos[col] = {
+                        'min': float(serie.min()),
+                        'max': float(serie.max())
+                    }
+
         filtros = {
-            'tipos': modelo.df['tipo'].unique().tolist() if 'tipo' in modelo.df.columns else [],
-            'ciudades': modelo.df['ciudad'].unique().tolist() if 'ciudad' in modelo.df.columns else [],
-            'zonas': modelo.df['zona'].unique().tolist() if 'zona' in modelo.df.columns else [],
-            'tipo_negocio': modelo.df['tipo_negocio'].unique().tolist() if 'tipo_negocio' in modelo.df.columns else [],
-            'habitaciones': sorted(modelo.df['habitaciones'].unique().tolist()) if 'habitaciones' in modelo.df.columns else [],
-            'banos': sorted(modelo.df['banos'].unique().tolist()) if 'banos' in modelo.df.columns else [],
+            'tipos': lista_sin_nan('tipo'),
+            'ciudades': lista_sin_nan('ciudad'),
+            'zonas': lista_sin_nan('zona'),
+            'tipo_negocio': lista_sin_nan('tipo_negocio'),
+            'habitaciones': lista_int_sin_nan('habitaciones'),
+            'banos': lista_int_sin_nan('banos'),
             'caracteristicas_booleanas': [
                 'tiene_piscina',
                 'tiene_gimnasio',
@@ -304,20 +357,7 @@ def filtros_disponibles():
                 'tiene_ascensor',
                 'tiene_seguridad'
             ],
-            'rangos_numericos': {
-                'precio': {
-                    'min': float(modelo.df['precio'].min()),
-                    'max': float(modelo.df['precio'].max())
-                } if 'precio' in modelo.df.columns else {},
-                'area_total': {
-                    'min': float(modelo.df['area_total'].min()),
-                    'max': float(modelo.df['area_total'].max())
-                } if 'area_total' in modelo.df.columns else {},
-                'area_construida': {
-                    'min': float(modelo.df['area_construida'].min()),
-                    'max': float(modelo.df['area_construida'].max())
-                } if 'area_construida' in modelo.df.columns else {}
-            }
+            'rangos_numericos': rangos_numericos
         }
         return jsonify(filtros)
     except Exception as e:
@@ -343,6 +383,51 @@ def sincronizar():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/openapi.yaml', methods=['GET'])
+def openapi_spec():
+    """Sirve el archivo de especificación OpenAPI para Swagger UI"""
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        return send_from_directory(base_dir, 'openapi_wasi.yaml', mimetype='application/yaml')
+    except Exception as e:
+        return jsonify({'error': f'No se pudo cargar openapi_wasi.yaml: {e}'}), 500
+
+
+@app.route('/docs', methods=['GET'])
+def swagger_ui():
+    """Interfaz Swagger UI para probar la API"""
+    html = """<!DOCTYPE html>
+<html lang=\"es\">
+  <head>
+    <meta charset=\"UTF-8\" />
+    <title>Swagger UI - API Inmuebles WASI</title>
+    <link rel=\"stylesheet\" href=\"https://unpkg.com/swagger-ui-dist@5/swagger-ui.css\" />
+    <style>
+      body { margin: 0; padding: 0; }
+      #swagger-ui { width: 100%; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id=\"swagger-ui\"></div>
+    <script src=\"https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js\"></script>
+    <script>
+      window.onload = () => {
+        window.ui = SwaggerUIBundle({
+          url: '/openapi.yaml',
+          dom_id: '#swagger-ui',
+          presets: [
+            SwaggerUIBundle.presets.apis,
+            SwaggerUIBundle.SwaggerUIStandalonePreset
+          ],
+          layout: 'BaseLayout',
+        });
+      };
+    </script>
+  </body>
+</html>"""
+    return make_response(html)
+
+
 if __name__ == '__main__':
     print("="*70)
     print("API DE BÚSQUEDA DE INMUEBLES - INTEGRACIÓN WASI")
@@ -354,19 +439,20 @@ if __name__ == '__main__':
     print("\n" + "="*70)
     print("SERVIDOR INICIADO")
     print("="*70)
-    print("\nEndpoints disponibles:")
-    print("  GET  http://localhost:5000/")
-    print("  GET  http://localhost:5000/estadisticas")
-    print("  POST http://localhost:5000/buscar")
-    print("  GET  http://localhost:5000/similares/<id>")
-    print("  GET  http://localhost:5000/tipos")
-    print("  GET  http://localhost:5000/ciudades")
-    print("  GET  http://localhost:5000/inmueble/<id>")
-    print("  GET  http://localhost:5000/filtros-disponibles")
-    print("  POST http://localhost:5000/sincronizar")
     
-    print("\nEjemplo de búsqueda con curl:")
-    print('  curl -X POST http://localhost:5000/buscar \\')
+    print("\nEndpoints disponibles:")
+    print("  GET  http://localhost:5001/")
+    print("  GET  http://localhost:5001/estadisticas")
+    print("  POST http://localhost:5001/buscar")
+    print("  GET  http://localhost:5001/similares/<id>")
+    print("  GET  http://localhost:5001/tipos")
+    print("  GET  http://localhost:5001/ciudades")
+    print("  GET  http://localhost:5001/inmueble/<id>")
+    print("  GET  http://localhost:5001/filtros-disponibles")
+    print("  POST http://localhost:5001/sincronizar")
+    
+    print('\nEjemplo de búsqueda con curl:')
+    print('  curl -X POST http://localhost:5001/buscar \\')
     print('    -H "Content-Type: application/json" \\')
     print('    -d \'{"tipo": "Apartamento", "ciudad": "Bogotá", "habitaciones_min": 2}\'')
     
@@ -374,5 +460,5 @@ if __name__ == '__main__':
     print("🌐 Servidor listo para recibir peticiones desde tu frontend")
     print("="*70)
     
-    # Iniciar servidor
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Iniciar servidor en puerto 5001 (HTTP)
+    app.run(debug=True, host='0.0.0.0', port=5001)

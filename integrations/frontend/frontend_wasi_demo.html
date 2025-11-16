@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Demo Buscador Inmuebles WASI</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      margin: 0;
+      padding: 24px;
+      background: radial-gradient(circle at top left, #e0f2fe 0, #f9fafb 45%, #f3f4f6 100%);
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+    }
+    .shell {
+      width: 100%;
+      max-width: 1200px;
+      background: rgba(255,255,255,0.9);
+      border-radius: 16px;
+      box-shadow: 0 18px 45px rgba(15,23,42,0.13);
+      padding: 24px 28px 26px;
+      border: 1px solid rgba(209,213,219,0.7);
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    h1 {
+      font-size: 22px;
+      margin: 0 0 4px;
+      color: #111827;
+    }
+    header small {
+      display: block;
+      color: #6b7280;
+      font-size: 13px;
+    }
+    .badge-env {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #ecfdf5;
+      color: #15803d;
+      font-size: 11px;
+      font-weight: 500;
+      border: 1px solid #bbf7d0;
+    }
+    .badge-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #22c55e;
+      box-shadow: 0 0 0 5px rgba(34,197,94,0.25);
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+      gap: 20px;
+    }
+    .card {
+      background: #f9fafb;
+      border-radius: 14px;
+      padding: 16px 16px 14px;
+      border: 1px solid #e5e7eb;
+    }
+    .card h2 {
+      font-size: 14px;
+      margin: 0 0 12px;
+      color: #111827;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .card h2 span {
+      font-size: 11px;
+      font-weight: 500;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .filters-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 12px;
+      margin-bottom: 14px;
+    }
+    label.field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+      color: #374151;
+    }
+    label.field span {
+      font-weight: 500;
+    }
+    select, input[type="number"] {
+      padding: 7px 9px;
+      border-radius: 8px;
+      border: 1px solid #d1d5db;
+      font-size: 13px;
+      background: white;
+      outline: none;
+    }
+    select:focus, input[type="number"]:focus {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 1px rgba(37,99,235,0.35);
+    }
+    .features {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .features label {
+      font-size: 11px;
+      color: #374151;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #e5e7eb;
+      border: 1px solid #d1d5db;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .features input { margin: 0; }
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .btn-primary,
+    .btn-ghost {
+      padding: 7px 14px;
+      font-size: 13px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      color: #f9fafb;
+      border-color: #1d4ed8;
+    }
+    .btn-primary:disabled { opacity: 0.6; cursor: default; }
+    .btn-ghost {
+      background: #f9fafb;
+      color: #374151;
+      border-color: #d1d5db;
+    }
+    .badge-small {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #e5e7eb;
+      color: #4b5563;
+      display: inline-block;
+      margin-right: 4px;
+    }
+    .status {
+      font-size: 12px;
+      color: #374151;
+      margin-top: 4px;
+    }
+    .status span.ok { color: #16a34a; }
+    .status span.err { color: #b91c1c; }
+    .summary {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #4b5563;
+    }
+    .results-card {
+      background: #ffffff;
+      border-radius: 14px;
+      padding: 14px 14px 12px;
+      border: 1px solid #e5e7eb;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .results-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .results-header h2 {
+      font-size: 14px;
+      margin: 0;
+      color: #111827;
+    }
+    .results-counter {
+      font-size: 12px;
+      color: #4b5563;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #f9fafb;
+    }
+    th, td {
+      padding: 7px 9px;
+      font-size: 12px;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: left;
+    }
+    th {
+      background: #111827;
+      color: white;
+      font-weight: 600;
+    }
+    tr:nth-child(even) td { background: #f9fafb; }
+    .precio { font-weight: 600; color: #16a34a; }
+    .pill { padding: 2px 6px; border-radius: 999px; font-size: 10px; }
+    .pill-tipo { background: #e0f2fe; color: #0369a1; }
+    .pill-negocio { background: #fef9c3; color: #854d0e; }
+    @media (max-width: 960px) {
+      .layout { grid-template-columns: minmax(0, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div>
+        <h1>Buscador de Inmuebles (WASI)</h1>
+        <small>Conectado a datos reales de WASI. Backend: <code>python3 api_wasi.py</code> en <strong>http://localhost:5001</strong></small>
+      </div>
+      <div class="badge-env">
+        <span class="badge-dot"></span>
+        <span>Modelo cargado</span>
+      </div>
+    </header>
+
+    <div class="layout">
+      <section class="card">
+        <h2><span>Filtros</span> Búsqueda de inmuebles</h2>
+
+        <div class="filters-grid">
+          <label class="field">
+            <span>Tipo de inmueble</span>
+            <select id="tipo">
+              <option value="">Cualquiera</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Ciudad</span>
+            <select id="ciudad">
+              <option value="">Cualquiera</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Hab mín</span>
+            <input type="number" id="habitaciones_min" min="0" placeholder="Ej. 2" />
+          </label>
+
+          <label class="field">
+            <span>Baños mín</span>
+            <input type="number" id="banos_min" min="0" placeholder="Ej. 2" />
+          </label>
+
+          <label class="field">
+            <span>Precio mín (COP)</span>
+            <input type="number" id="precio_min" min="0" placeholder="Ej. 300000000" />
+          </label>
+
+          <label class="field">
+            <span>Precio máx (COP)</span>
+            <input type="number" id="precio_max" min="0" placeholder="Ej. 800000000" />
+          </label>
+
+          <label class="field">
+            <span>Área mín (m²)</span>
+            <input type="number" id="area_min" min="0" placeholder="Ej. 50" />
+          </label>
+
+          <label class="field">
+            <span>Área máx (m²)</span>
+            <input type="number" id="area_max" min="0" placeholder="Ej. 120" />
+          </label>
+        </div>
+
+        <div class="features">
+          <label><input type="checkbox" id="chk_piscina" /> Piscina</label>
+          <label><input type="checkbox" id="chk_gimnasio" /> Gimnasio</label>
+          <label><input type="checkbox" id="chk_seguridad" /> Seguridad</label>
+          <label><input type="checkbox" id="chk_parqueadero" /> Parqueadero</label>
+        </div>
+
+        <div class="badges" id="meta"></div>
+        <div class="status" id="status"></div>
+        <div class="summary" id="resumen"></div>
+
+        <div class="actions">
+          <button id="btnReset" type="button" class="btn-ghost">Limpiar filtros</button>
+          <button id="btnBuscar" class="btn-primary">Buscar inmuebles</button>
+        </div>
+      </section>
+
+      <section class="results-card">
+        <div class="results-header">
+          <h2>Resultados</h2>
+          <div class="results-counter" id="counter"></div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Tipo / Negocio</th>
+              <th>Ubicación</th>
+              <th>Hab / Baños</th>
+              <th>Área (m²)</th>
+              <th>Precio</th>
+              <th>URL</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr><td colspan="7">Sin resultados. Realiza una búsqueda.</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const API = 'http://localhost:5001';
+
+    const elTipo = document.getElementById('tipo');
+    const elCiudad = document.getElementById('ciudad');
+    const elHabMin = document.getElementById('habitaciones_min');
+    const elBanosMin = document.getElementById('banos_min');
+    const elPrecioMin = document.getElementById('precio_min');
+    const elPrecioMax = document.getElementById('precio_max');
+    const elAreaMin = document.getElementById('area_min');
+    const elAreaMax = document.getElementById('area_max');
+    const elPiscina = document.getElementById('chk_piscina');
+    const elGimnasio = document.getElementById('chk_gimnasio');
+    const elSeguridad = document.getElementById('chk_seguridad');
+    const elParqueadero = document.getElementById('chk_parqueadero');
+    const elBtnBuscar = document.getElementById('btnBuscar');
+    const elBtnReset = document.getElementById('btnReset');
+    const elTbody = document.getElementById('tbody');
+    const elStatus = document.getElementById('status');
+    const elMeta = document.getElementById('meta');
+    const elResumen = document.getElementById('resumen');
+
+    async function fetchJSON(url, options = {}) {
+      const res = await fetch(url, options);
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`HTTP ${res.status}: ${txt}`);
+      }
+      return res.json();
+    }
+
+    async function cargarFiltros() {
+      try {
+        const data = await fetchJSON(`${API}/filtros-disponibles`);
+        elTipo.innerHTML = '<option value="">Tipo de inmueble</option>';
+        (data.tipos || []).forEach(t => {
+          const opt = document.createElement('option');
+          opt.value = t;
+          opt.textContent = t;
+          elTipo.appendChild(opt);
+        });
+
+        elCiudad.innerHTML = '<option value="">Ciudad</option>';
+        (data.ciudades || []).forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c;
+          opt.textContent = c;
+          elCiudad.appendChild(opt);
+        });
+
+        elMeta.innerHTML = '';
+        if (data.rangos_numericos && data.rangos_numericos.precio) {
+          const r = data.rangos_numericos.precio;
+          elMeta.innerHTML += `<span class="badge">Precio min: ${Number(r.min).toLocaleString('es-CO')}</span>`;
+          elMeta.innerHTML += `<span class="badge">Precio max: ${Number(r.max).toLocaleString('es-CO')}</span>`;
+        }
+      } catch (err) {
+        elStatus.innerHTML = `<span class="err">Error cargando filtros: ${err.message}</span>`;
+      }
+    }
+
+    async function buscar() {
+      const criterios = {};
+      if (elTipo.value) criterios.tipo = elTipo.value;
+      if (elCiudad.value) criterios.ciudad = elCiudad.value;
+      if (elHabMin.value) criterios.habitaciones_min = Number(elHabMin.value);
+      if (elBanosMin.value) criterios.banos_min = Number(elBanosMin.value);
+      if (elPrecioMin.value) criterios.precio_min = Number(elPrecioMin.value);
+      if (elPrecioMax.value) criterios.precio_max = Number(elPrecioMax.value);
+      if (elAreaMin.value) criterios.area_min = Number(elAreaMin.value);
+      if (elAreaMax.value) criterios.area_max = Number(elAreaMax.value);
+      if (elPiscina.checked) criterios.tiene_piscina = true;
+      if (elGimnasio.checked) criterios.tiene_gimnasio = true;
+      if (elSeguridad.checked) criterios.tiene_seguridad = true;
+      if (elParqueadero.checked) criterios.tiene_parqueadero = true;
+
+      elBtnBuscar.disabled = true;
+      elStatus.innerHTML = 'Buscando inmuebles...';
+
+      try {
+        const data = await fetchJSON(`${API}/buscar`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(criterios)
+        });
+
+        renderResultados(data);
+        elStatus.innerHTML = `<span class="ok">Encontrados ${data.total_encontrados} inmuebles (mostrando ${data.total_retornados}).</span>`;
+
+        // Resumen adicional (si el backend devuelve estadísticas)
+        const partes = [];
+        if (data.estadisticas && data.estadisticas.precio_promedio) {
+          partes.push(`Precio promedio: ${Number(data.estadisticas.precio_promedio).toLocaleString('es-CO')} COP`);
+        }
+        if (data.criterios_aplicados) {
+          partes.push(`Criterios aplicados: ${Object.keys(data.criterios_aplicados).length}`);
+        }
+        elResumen.innerHTML = partes.length ? partes.join(' · ') : '';
+      } catch (err) {
+        elTbody.innerHTML = `<tr><td colspan="7">Error: ${err.message}</td></tr>`;
+        elStatus.innerHTML = `<span class="err">Error en la búsqueda: ${err.message}</span>`;
+        elResumen.innerHTML = '';
+      } finally {
+        elBtnBuscar.disabled = false;
+      }
+    }
+
+    function renderResultados(data) {
+      const lista = data.resultados || [];
+      if (!lista.length) {
+        elTbody.innerHTML = '<tr><td colspan="7">No se encontraron inmuebles con esos criterios.</td></tr>';
+        return;
+      }
+
+      elTbody.innerHTML = '';
+      lista.forEach(inm => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${inm.id || ''}</td>
+          <td>
+            <span class="pill pill-tipo">${inm.tipo || ''}</span><br/>
+            <span class="pill pill-negocio">${inm.tipo_negocio || ''}</span>
+          </td>
+          <td>${inm.ciudad || ''}<br/><small>${inm.zona || ''}</small></td>
+          <td>${inm.habitaciones ?? '-'} / ${inm.banos ?? '-'}</td>
+          <td>${inm.area_total ?? inm.area_construida ?? ''}</td>
+          <td class="precio">${(inm.precio ?? 0).toLocaleString('es-CO')}</td>
+          <td>${inm.url ? `<a href="${inm.url}" target="_blank">Ver</a>` : ''}</td>
+        `;
+        elTbody.appendChild(tr);
+      });
+    }
+
+    elBtnBuscar.addEventListener('click', buscar);
+    elBtnReset.addEventListener('click', () => {
+      elTipo.value = '';
+      elCiudad.value = '';
+      elHabMin.value = '';
+      elBanosMin.value = '';
+      elPrecioMin.value = '';
+      elPrecioMax.value = '';
+      elAreaMin.value = '';
+      elAreaMax.value = '';
+      elPiscina.checked = false;
+      elGimnasio.checked = false;
+      elSeguridad.checked = false;
+      elParqueadero.checked = false;
+      elStatus.innerHTML = '';
+      elResumen.innerHTML = '';
+      elTbody.innerHTML = '<tr><td colspan="7">Sin resultados. Realiza una búsqueda.</td></tr>';
+    });
+
+    cargarFiltros();
+  </script>
+</body>
+</html>

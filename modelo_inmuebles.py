@@ -259,22 +259,44 @@ class ModeloInmuebles:
         print(f"Criterios aplicados: {criterios}")
         
         resultado = self.df.copy()
+        criterios_aplicados = 0
         
         for columna, valor in criterios.items():
-            if columna.endswith('_min'):
-                col_base = columna.replace('_min', '')
-                if col_base in resultado.columns:
-                    resultado = resultado[resultado[col_base] >= valor]
-            elif columna.endswith('_max'):
-                col_base = columna.replace('_max', '')
-                if col_base in resultado.columns:
-                    resultado = resultado[resultado[col_base] <= valor]
+            if valor is None or valor == "":
+                continue
+
+            if columna.endswith('_min') or columna.endswith('_max'):
+                col_base = columna.replace('_min', '').replace('_max', '')
+
+                if col_base == 'area':
+                    if 'area_total' in resultado.columns:
+                        col_real = 'area_total'
+                    elif 'area_construida' in resultado.columns:
+                        col_real = 'area_construida'
+                    else:
+                        continue
+                else:
+                    col_real = col_base
+
+                if col_real not in resultado.columns:
+                    continue
+
+                resultado[col_real] = pd.to_numeric(resultado[col_real], errors='coerce')
+
+                if columna.endswith('_min'):
+                    resultado = resultado[resultado[col_real] >= float(valor)]
+                else:
+                    resultado = resultado[resultado[col_real] <= float(valor)]
+                criterios_aplicados += 1
+
             elif columna in resultado.columns:
                 if isinstance(valor, list):
                     resultado = resultado[resultado[columna].isin(valor)]
                 else:
                     resultado = resultado[resultado[columna] == valor]
+                criterios_aplicados += 1
         
+        print(f"✓ Criterios efectivamente aplicados: {criterios_aplicados}")
         print(f"✓ Encontrados {len(resultado)} inmuebles que cumplen los criterios")
         
         return resultado
