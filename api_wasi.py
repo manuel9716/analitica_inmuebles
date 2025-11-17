@@ -7,9 +7,21 @@ from flask import Flask, request, jsonify, send_from_directory, make_response
 from flask_cors import CORS
 from modelo_inmuebles import ModeloInmuebles
 from integrations.wasi.wasi_connector import WasiConnector
+from nlp_modelo_inmuebles import (
+    cargar_modelo_nlp,
+    predecir_desde_texto,
+    cargar_dataset_nlp_desde_db,
+    cargar_dataset_nlp,
+    entrenar_modelos,
+    guardar_modelo_nlp,
+)
+from db_nlp_logs import init_db, guardar_consulta_nlp
 import pandas as pd
+import numpy as np
 import os
 from datetime import datetime
+import re
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 app = Flask(__name__)
 CORS(app)  # Permitir CORS para desarrollo
@@ -22,13 +34,200 @@ WASI_TOKEN = "4kyL_tY1Q_e8yL_j0ju"
 modelo = None
 wasi_connector = None
 ultima_sincronizacion = None
+modelo_nlp = None
+
+
+def parsear_texto_a_criterios(texto):
+    """Convierte una descripción en lenguaje natural en criterios de búsqueda.
+
+    Ejemplo de entrada:
+    "quiero un apartamento con buena iluminacion de 3 alcobas y 2 baños, con parqueadero"
+
+    La idea es mapear el texto a los campos que ya entiende el modelo, como
+    tipo, ciudad, habitaciones_min, banos_min, precio_min/max, tipo_negocio, etc.
+    """
+    criterios = {}
+
+    if not texto:
+        return criterios
+
+    t = texto.lower()
+
+    # Tipo de inmueble
+    if "apartamento" in t or "apartaestudio" in t:
+        criterios["tipo"] = "Apartamento"
+    elif "casa" in t:
+        criterios["tipo"] = "Casa"
+
+    # Tipo de negocio (arriendo / venta)
+    if "arriendo" in t or "alquiler" in t or "renta" in t:
+        criterios["tipo_negocio"] = "Arriendo"
+    if "venta" in t or "comprar" in t or "compro" in t:
+        criterios["tipo_negocio"] = "Venta"
+
+    # Habitaciones (alcobas, cuartos)
+    match_hab = re.search(r"(\d+)\s+(habitaciones|alcobas|cuartos|cuartos)", t)
+    if match_hab:
+        try:
+            criterios["habitaciones_min"] = int(match_hab.group(1))
+        except ValueError:
+            pass
+
+    # Baños (maneja "baños", "banos")
+    match_banos = re.search(r"(\d+)\s+ba[ñn]os", t)
+    if match_banos:
+        try:
+            criterios["banos_min"] = int(match_banos.group(1))
+        except ValueError:
+            pass
+
+    # Área mínima (m2, metros)
+    match_area = re.search(r"(\d+)\s*(m2|metros|metros cuadrados)", t)
+    if match_area:
+        try:
+            criterios["area_min"] = int(match_area.group(1))
+        except ValueError:
+            pass
+
+    # Parqueadero / garaje
+    if "parqueadero" in t or "garaje" in t or "parqueo" in t:
+        criterios["tiene_parqueadero"] = True
+
+    # Piscina
+    if "piscina" in t:
+        criterios["tiene_piscina"] = True
+
+    # Gimnasio
+    if "gimnasio" in t or "gym" in t:
+        criterios["tiene_gimnasio"] = True
+
+    # Seguridad / portería
+    if "seguridad" in t or "porteria" in t or "portería" in t or "vigilancia" in t:
+        criterios["tiene_seguridad"] = True
+
+    # Amoblado / semi amoblado
+    if "totalmente amoblado" in t or "totalmente amueblado" in t or "amoblado" in t or "amueblado" in t:
+        criterios["amoblado"] = True
+    if "semi amoblado" in t or "semi-amoblado" in t:
+        criterios["amoblado"] = True
+
+    # Mascotas / pet friendly
+    if "mascotas" in t or "pet friendly" in t or "aptos para mascotas" in t or "apto para mascotas" in t:
+        criterios["mascotas"] = True
+
+    # Balcón y terraza
+    if "balcón" in t or "balcon" in t:
+        criterios["balcon"] = True
+    if "terraza" in t:
+        criterios["terraza"] = True
+
+    # Rango de precio expresado en "millones"
+    # Ejemplos: "hasta 500 millones", "entre 300 y 600 millones", "de 200 a 400 millones"
+    numeros_millones = re.findall(r"(\d+)\s*millones", t)
+    valores = []
+    for n in numeros_millones:
+        try:
+            valores.append(int(n) * 1_000_000)
+        except ValueError:
+            continue
+
+    # Rango de precio expresado en notación tipo "1.5M - 2M", "3M - 4M", "más de 5M", "menos de 1M"
+    # Primero rangos "X M - Y M"
+    rangos_M = re.findall(r"(\d+(?:\.\d+)?)\s*M\s*-\s*(\d+(?:\.\d+)?)\s*M", t)
+    for minimo, maximo in rangos_M:
+        try:
+            vmin = float(minimo) * 1_000_000
+            vmax = float(maximo) * 1_000_000
+            valores.append(vmin)
+            valores.append(vmax)
+        except ValueError:
+            continue
+
+    # "menos de XM" o "menos de X millones"
+    match_menos_M = re.search(r"menos de\s*(\d+(?:\.\d+)?)\s*M", t)
+    if match_menos_M:
+        try:
+            vmax = float(match_menos_M.group(1)) * 1_000_000
+            valores.append(vmax)
+        except ValueError:
+            pass
+
+    # "más de XM" o "mas de XM"
+    match_mas_M = re.search(r"m[aá]s de\s*(\d+(?:\.\d+)?)\s*M", t)
+    if match_mas_M:
+        try:
+            vmin = float(match_mas_M.group(1)) * 1_000_000
+            valores.append(vmin)
+        except ValueError:
+            pass
+
+    if valores:
+        valores_ordenados = sorted(valores)
+        # Heurística: si hay varios valores, tomamos el menor como precio_min y el mayor como precio_max
+        if len(valores_ordenados) == 1:
+            # Un solo valor: lo usamos como precio_max si no hay indicación de "más de" / "mas de"
+            # (si el texto tenía "más de" o "mas de", ya habremos añadido ese valor como mínimo)
+            if "mas de" in t or "más de" in t:
+                criterios["precio_min"] = valores_ordenados[0]
+            else:
+                criterios["precio_max"] = valores_ordenados[0]
+        else:
+            criterios["precio_min"] = valores_ordenados[0]
+            criterios["precio_max"] = valores_ordenados[-1]
+
+    # Adjetivos de nivel de precio (económico, medio, alto, premium)
+    # Mapeamos a los cuartiles si categorias_precio está disponible
+    try:
+        if modelo is not None and getattr(modelo, "categorias_precio", None):
+            cats = modelo.categorias_precio
+            # Normalizamos claves a minúsculas para comparaciones simples
+            cats_lower = {k.lower(): v for k, v in cats.items()}
+
+            if "economico" in t or "económico" in t or "barato" in t or "asequible" in t:
+                max_eco = cats_lower.get("económico") or cats_lower.get("economico")
+                if max_eco is not None:
+                    criterios["precio_max"] = float(max_eco)
+
+            if "medio" in t or "intermedio" in t:
+                max_med = cats_lower.get("medio")
+                if max_med is not None:
+                    criterios["precio_max"] = float(max_med)
+
+            if "caro" in t or "alto" in t or "exclusivo" in t or "lujoso" in t:
+                min_alto = cats_lower.get("medio")
+                if min_alto is not None:
+                    criterios["precio_min"] = float(min_alto)
+
+            if "premium" in t or "muy caro" in t:
+                min_premium = cats_lower.get("alto")
+                if min_premium is not None:
+                    criterios["precio_min"] = float(min_premium)
+    except Exception:
+        # Si algo falla al leer categorias_precio, continuamos con las demás reglas
+        pass
+
+    # Intentar detectar ciudad a partir de los valores existentes en el dataset
+    try:
+        if modelo is not None and modelo.df is not None and "ciudad" in modelo.df.columns:
+            ciudades = [str(c) for c in modelo.df["ciudad"].dropna().unique().tolist()]
+            for ciudad in ciudades:
+                c_lower = ciudad.lower()
+                # Coincidencia simple por nombre exacto dentro del texto
+                if c_lower in t:
+                    criterios["ciudad"] = ciudad
+                    break
+    except Exception:
+        # Si algo falla al detectar ciudad, simplemente lo ignoramos
+        pass
+
+    return criterios
 
 
 def inicializar_sistema():
     """
     Inicializa el sistema: sincroniza datos de WASI y entrena el modelo
     """
-    global modelo, wasi_connector, ultima_sincronizacion
+    global modelo, wasi_connector, ultima_sincronizacion, modelo_nlp
     
     print("="*70)
     print("INICIALIZANDO SISTEMA CON DATOS REALES DE WASI")
@@ -85,9 +284,27 @@ def inicializar_sistema():
         modelo.entrenar_clustering(n_clusters=5)
         modelo.guardar_modelo(archivo_modelo)
     
+    # Inicializar base de datos para logging NLP
+    try:
+        init_db()
+        print("\n✓ Tabla nlp_consultas verificada/creada en PostgreSQL")
+    except Exception as e:
+        print(f"\n⚠️ No se pudo inicializar la tabla nlp_consultas: {e}")
+
     print("\n✓ Sistema listo para recibir peticiones")
     print(f"✓ Última sincronización: {ultima_sincronizacion.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"✓ Total de inmuebles: {len(modelo.df)}")
+
+    # Cargar modelo NLP si existe
+    try:
+        ruta_nlp = 'modelo_nlp_inmuebles.pkl'
+        if os.path.exists(ruta_nlp):
+            modelo_nlp = cargar_modelo_nlp(ruta_nlp)
+            print(f"✓ Modelo NLP cargado desde: {ruta_nlp}")
+        else:
+            print("⚠️ No se encontró modelo NLP entrenado (modelo_nlp_inmuebles.pkl)")
+    except Exception as e:
+        print(f"⚠️ Error al cargar modelo NLP: {e}")
 
 
 @app.route('/')
@@ -145,6 +362,248 @@ def estadisticas():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/buscar-nlp', methods=['POST'])
+def buscar_nlp():
+    """Búsqueda de inmuebles a partir de texto en lenguaje natural.
+
+    Espera un JSON de entrada como:
+    {
+        "texto": "quiero un apartamento con buena iluminacion de 3 alcobas y 2 baños, con parqueadero"
+    }
+    """
+    try:
+        data = request.get_json()
+
+        if not data or 'texto' not in data:
+            return jsonify({'error': 'Debe enviar un campo "texto" con la descripción de lo que busca'}), 400
+
+        texto = data.get('texto', '')
+
+        # 1) Inferir criterios mediante reglas
+        criterios_reglas = parsear_texto_a_criterios(texto)
+        criterios = dict(criterios_reglas)  # copia
+
+        # 2) Complementar con modelo NLP entrenado (si está cargado)
+        predicciones_nlp = {}
+        if modelo_nlp is not None:
+            try:
+                predicciones_nlp = predecir_desde_texto(modelo_nlp, texto)
+            except Exception as e:
+                print(f"Error al predecir con modelo NLP: {e}")
+
+        # Combinar predicciones NLP con criterios (sin sobreescribir lo que ya fijaron las reglas)
+        if predicciones_nlp:
+            # tipo_negocio desde 'operacion'
+            if 'operacion' in predicciones_nlp and 'tipo_negocio' not in criterios:
+                op = str(predicciones_nlp['operacion']).strip().lower()
+                if op == 'arriendo':
+                    criterios['tipo_negocio'] = 'Arriendo'
+                elif op == 'venta':
+                    criterios['tipo_negocio'] = 'Venta'
+
+            # ciudad
+            if 'ciudad' in predicciones_nlp and 'ciudad' not in criterios:
+                criterios['ciudad'] = predicciones_nlp['ciudad']
+
+            # precio_rango -> precio_min / precio_max usando el mismo parser
+            if 'precio_rango' in predicciones_nlp:
+                rango_texto = str(predicciones_nlp['precio_rango'])
+                criterios_precio = parsear_texto_a_criterios(rango_texto)
+                for k in ['precio_min', 'precio_max']:
+                    if k in criterios_precio and k not in criterios:
+                        criterios[k] = criterios_precio[k]
+
+            # parqueadero: 0,1,2... -> booleano tiene_parqueadero
+            if 'parqueadero' in predicciones_nlp and 'tiene_parqueadero' not in criterios:
+                try:
+                    num_parq = int(predicciones_nlp['parqueadero'])
+                    if num_parq >= 1:
+                        criterios['tiene_parqueadero'] = True
+                except ValueError:
+                    pass
+
+        if not criterios:
+            # Loggear consulta sin criterios claros
+            try:
+                guardar_consulta_nlp(
+                    texto_usuario=texto,
+                    criterios_inferidos=criterios,
+                    predicciones_nlp=predicciones_nlp,
+                    filtros_relajados=[],
+                    total_encontrados=0,
+                    total_retornados=0,
+                )
+            except Exception as e:
+                print(f"⚠️ Error al guardar consulta NLP (sin criterios): {e}")
+
+            return jsonify({
+                'mensaje': 'No se pudieron inferir criterios claros a partir del texto. Intenta ser más específico.',
+                'texto_original': texto,
+                'criterios_inferidos': criterios,
+                'predicciones_nlp': predicciones_nlp,
+                'total_encontrados': 0,
+                'total_retornados': 0,
+                'resultados': []
+            }), 200
+
+        # --- Búsqueda con relajación progresiva de filtros ---
+        filtros_relajados = []
+
+        def ejecutar_busqueda(crit):
+            try:
+                return modelo.categorizar_inmuebles(crit)
+            except Exception:
+                return modelo.df.copy() * 0  # DataFrame vacío en caso de error
+
+        # 1) Intento inicial con todos los criterios inferidos
+        resultado = ejecutar_busqueda(criterios)
+
+        # 2) Si no hay resultados, relajar progresivamente filtros
+        if len(resultado) == 0:
+            # Definimos un orden de relajación de filtros, de más estrictos a menos críticos
+            orden_relajacion = [
+                ['precio_min', 'precio_max'],
+                ['ciudad'],
+                ['tipo_negocio'],
+                ['tiene_parqueadero'],
+                ['amoblado'],
+                ['mascotas'],
+                ['balcon'],
+                ['terraza'],
+            ]
+
+            criterios_relajados = dict(criterios)
+
+            for grupo in orden_relajacion:
+                alguno_eliminado = False
+                for clave in grupo:
+                    if clave in criterios_relajados:
+                        criterios_relajados.pop(clave)
+                        filtros_relajados.append(clave)
+                        alguno_eliminado = True
+                if not alguno_eliminado:
+                    # Nada que relajar en este grupo, seguir con el siguiente
+                    continue
+
+                resultado = ejecutar_busqueda(criterios_relajados)
+                if len(resultado) > 0:
+                    criterios = criterios_relajados
+                    break
+
+        if len(resultado) > 0:
+            # Ordenar resultados por similitud con el texto original
+            try:
+                df_tmp = resultado.copy()
+                # Construir texto representativo del inmueble
+                for col in ['titulo', 'descripcion', 'ciudad', 'zona']:
+                    if col not in df_tmp.columns:
+                        df_tmp[col] = ''
+                textos_inmuebles = (
+                    df_tmp['titulo'].fillna('').astype(str) + ' ' +
+                    df_tmp['descripcion'].fillna('').astype(str) + ' ' +
+                    df_tmp['ciudad'].fillna('').astype(str) + ' ' +
+                    df_tmp['zona'].fillna('').astype(str)
+                )
+
+                corpus = [texto] + textos_inmuebles.tolist()
+                vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1, 2))
+                tfidf_matrix = vectorizer.fit_transform(corpus)
+
+                # Similitud coseno entre el texto del usuario (índice 0) y cada inmueble (1:)
+                # Producto punto ya que los vectores TF-IDF están normalizados
+                user_vec = tfidf_matrix[0]
+                inmuebles_vecs = tfidf_matrix[1:]
+                similitudes = inmuebles_vecs.dot(user_vec.T).toarray().ravel()
+
+                df_tmp = df_tmp.copy()
+                df_tmp['score_similitud'] = similitudes
+
+                # Ordenar por similitud descendente
+                resultado_ordenado = df_tmp.sort_values(by='score_similitud', ascending=False)
+            except Exception:
+                # Si algo falla en el cálculo de similitud, usar el orden original
+                resultado_ordenado = resultado
+
+            resultado_limitado = resultado_ordenado.head(100)
+
+            # Reemplazar NaN por None para evitar valores no válidos en JSON
+            resultado_limitado = resultado_limitado.where(pd.notnull(resultado_limitado), None)
+            resultado_limitado = resultado_limitado.replace({np.nan: None})
+
+            estadisticas_resultado = {}
+            if 'precio' in resultado.columns:
+                estadisticas_resultado = {
+                    'precio_promedio': float(resultado['precio'].mean()),
+                    'precio_minimo': float(resultado['precio'].min()),
+                    'precio_maximo': float(resultado['precio'].max()),
+                }
+
+            if filtros_relajados:
+                detalle_relajados = ", ".join(filtros_relajados)
+                mensaje = (
+                    f"No se encontraron inmuebles que cumplieran todos los criterios exactos, "
+                    f"pero se relajaron los filtros [{detalle_relajados}] y se encontraron "
+                    f"{len(resultado)} inmuebles (mostrando {len(resultado_limitado)})."
+                )
+            else:
+                mensaje = (
+                    f"Se encontraron {len(resultado)} inmuebles que coinciden con la descripción, "
+                    f"mostrando {len(resultado_limitado)}."
+                )
+
+            # Loggear consulta con resultados
+            try:
+                guardar_consulta_nlp(
+                    texto_usuario=texto,
+                    criterios_inferidos=criterios,
+                    predicciones_nlp=predicciones_nlp,
+                    filtros_relajados=filtros_relajados,
+                    total_encontrados=len(resultado),
+                    total_retornados=len(resultado_limitado),
+                )
+            except Exception as e:
+                print(f"⚠️ Error al guardar consulta NLP (con resultados): {e}")
+
+            return jsonify({
+                'mensaje': mensaje,
+                'texto_original': texto,
+                'criterios_inferidos': criterios,
+                'predicciones_nlp': predicciones_nlp,
+                'filtros_relajados': filtros_relajados,
+                'total_encontrados': len(resultado),
+                'total_retornados': len(resultado_limitado),
+                'estadisticas': estadisticas_resultado,
+                'resultados': resultado_limitado.to_dict('records')
+            })
+        else:
+            # Loggear consulta sin resultados
+            try:
+                guardar_consulta_nlp(
+                    texto_usuario=texto,
+                    criterios_inferidos=criterios,
+                    predicciones_nlp=predicciones_nlp,
+                    filtros_relajados=filtros_relajados,
+                    total_encontrados=0,
+                    total_retornados=0,
+                )
+            except Exception as e:
+                print(f"⚠️ Error al guardar consulta NLP (sin resultados): {e}")
+
+            return jsonify({
+                'mensaje': 'No se encontraron inmuebles que coincidan con la descripción proporcionada, incluso relajando filtros principales',
+                'texto_original': texto,
+                'criterios_inferidos': criterios,
+                'predicciones_nlp': predicciones_nlp,
+                'filtros_relajados': filtros_relajados,
+                'total_encontrados': 0,
+                'total_retornados': 0,
+                'resultados': []
+            })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/buscar', methods=['POST'])
 def buscar():
     """
@@ -174,6 +633,10 @@ def buscar():
         if len(resultado) > 0:
             # Limitar a 100 resultados
             resultado_limitado = resultado.head(100)
+
+            # Reemplazar NaN por None para evitar valores no válidos en JSON
+            resultado_limitado = resultado_limitado.where(pd.notnull(resultado_limitado), None)
+            resultado_limitado = resultado_limitado.replace({np.nan: None})
             
             # Calcular estadísticas de resultados
             estadisticas_resultado = {
@@ -378,6 +841,45 @@ def sincronizar():
             'mensaje': 'Sincronización completada',
             'timestamp': datetime.now().isoformat(),
             'total_inmuebles': len(modelo.df)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/entrenar-nlp', methods=['POST'])
+def entrenar_nlp_endpoint():
+    """Endpoint interno para reentrenar el modelo NLP.
+
+    Usa por defecto el dataset en PostgreSQL (tabla nlp_dataset_anotado) y,
+    si falla, hace fallback al CSV local dataset_nlp_inmuebles_5000.csv.
+    """
+    global modelo_nlp
+
+    try:
+        origen = 'bd'
+        try:
+            df_nlp = cargar_dataset_nlp_desde_db()
+        except Exception as e:
+            print(f"⚠️ No se pudo cargar dataset NLP desde BD: {e}")
+            origen = 'csv'
+            df_nlp = cargar_dataset_nlp()
+
+        total_filas = len(df_nlp)
+        if total_filas == 0:
+            return jsonify({'error': 'El dataset NLP está vacío'}), 400
+
+        print("Entrenando modelos NLP desde endpoint /entrenar-nlp...")
+        modelo_nlp_dic = entrenar_modelos(df_nlp)
+        guardar_modelo_nlp(modelo_nlp_dic)
+
+        # Recargar modelo en memoria
+        modelo_nlp = modelo_nlp_dic
+
+        return jsonify({
+            'mensaje': 'Modelo NLP reentrenado correctamente',
+            'origen_datos': origen,
+            'total_filas': total_filas,
+            'timestamp': datetime.now().isoformat()
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
