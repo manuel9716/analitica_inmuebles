@@ -38,6 +38,45 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /buscar-nlp:
+    post:
+      summary: Búsqueda de inmuebles por lenguaje natural
+      description: |
+        Recibe un texto libre del usuario y lo interpreta como criterios de búsqueda.
+        Combina un parser de reglas y un modelo NLP entrenado para generar filtros
+        sobre el dataset de inmuebles.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                texto:
+                  type: string
+                  description: Descripción en lenguaje natural de lo que el usuario está buscando.
+              required:
+                - texto
+      responses:
+        '200':
+          description: Resultados de la búsqueda interpretada desde lenguaje natural
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResultadoBusquedaNLP'
+        '400':
+          description: Texto no proporcionado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Error interno
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /buscar:
     post:
       summary: Búsqueda avanzada de inmuebles
@@ -399,6 +438,40 @@ components:
             $ref: '#/components/schemas/Inmueble'
         mensaje:
           type: string
+
+    ResultadoBusquedaNLP:
+      type: object
+      properties:
+        mensaje:
+          type: string
+        texto_original:
+          type: string
+        criterios_inferidos:
+          type: object
+          description: Criterios finales utilizados para filtrar los inmuebles (reglas + modelo NLP).
+        predicciones_nlp:
+          type: object
+          description: Predicciones crudas del modelo NLP (tipo_inmueble, operacion, ciudad, zona, precio_rango, etc.).
+        total_encontrados:
+          type: integer
+        total_retornados:
+          type: integer
+        estadisticas:
+          type: object
+          properties:
+            precio_promedio:
+              type: number
+              format: float
+            precio_minimo:
+              type: number
+              format: float
+            precio_maximo:
+              type: number
+              format: float
+        resultados:
+          type: array
+          items:
+            $ref: '#/components/schemas/Inmueble'
 
     SimilaresResponse:
       type: object
