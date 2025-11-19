@@ -1,6 +1,7 @@
 from datetime import datetime
 import os
 from typing import Any, Dict
+import json
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException
@@ -183,7 +184,25 @@ async def buscar(criterios: Dict[str, Any]) -> Dict[str, Any]:
                 "mensaje": "No se encontraron inmuebles con los criterios especificados",
             }
 
-        resultado_limitado = resultado.head(100)
+        resultado_limitado = resultado.head(100).copy()
+
+        # Asegurar que la columna 'imagenes' (si existe) sea una lista JSON en la respuesta
+        if "imagenes" in resultado_limitado.columns:
+            def _parse_imagenes(value: Any) -> Any:
+                if value is None or (isinstance(value, float) and pd.isna(value)):
+                    return []
+                if isinstance(value, list):
+                    return value
+                if isinstance(value, str):
+                    try:
+                        parsed = json.loads(value)
+                        if isinstance(parsed, list):
+                            return parsed
+                    except Exception:
+                        pass
+                return []
+
+            resultado_limitado["imagenes"] = resultado_limitado["imagenes"].apply(_parse_imagenes)
 
         estadisticas_resultado = {
             "precio_promedio": float(resultado["precio"].mean()),
@@ -238,7 +257,25 @@ async def obtener_inmueble(inmueble_id: str) -> Dict[str, Any]:
         if len(inmueble) == 0:
             raise HTTPException(status_code=404, detail="Inmueble no encontrado")
 
-        return inmueble.iloc[0].to_dict()
+        fila = inmueble.iloc[0].to_dict()
+
+        # Normalizar 'imagenes' a lista JSON
+        if "imagenes" in fila:
+            value = fila["imagenes"]
+            if value is None:
+                fila["imagenes"] = []
+            elif isinstance(value, list):
+                fila["imagenes"] = value
+            elif isinstance(value, str):
+                try:
+                    parsed = json.loads(value)
+                    fila["imagenes"] = parsed if isinstance(parsed, list) else []
+                except Exception:
+                    fila["imagenes"] = []
+            else:
+                fila["imagenes"] = []
+
+        return fila
     except HTTPException:
         raise
     except Exception as e:  # pragma: no cover - logging
