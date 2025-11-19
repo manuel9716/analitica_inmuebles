@@ -185,6 +185,63 @@ class WasiConnector:
             return response['data'][0]
         return None
     
+    def obtener_galerias_inmueble(self, id_inmueble: str) -> List[Dict]:
+        """
+        Obtiene las galerías asociadas a un inmueble específico.
+        """
+        endpoint = f"gallery/all/{id_inmueble}"
+        response = self._make_request(endpoint, method='GET')
+
+        if not response:
+            return []
+
+        galerias: List[Dict] = []
+        for key, value in response.items():
+            if isinstance(key, str) and key.isdigit():
+                galerias.append(value)
+
+        return galerias
+
+    def obtener_imagenes_galeria(self, id_gallery: int) -> List[Dict]:
+        """
+        Obtiene las imágenes de una galería específica.
+        """
+        endpoint = f"gallery/image/all/{id_gallery}"
+        response = self._make_request(endpoint, method='GET')
+
+        if not response:
+            return []
+
+        imagenes: List[Dict] = []
+        for key, value in response.items():
+            if isinstance(key, str) and key.isdigit():
+                imagenes.append(value)
+
+        return imagenes
+
+    def obtener_imagenes_inmueble(self, id_inmueble: str) -> List[Dict]:
+        """
+        Obtiene todas las imágenes asociadas a un inmueble, a través de sus galerías.
+        """
+        try:
+            galerias = self.obtener_galerias_inmueble(id_inmueble)
+            if not galerias:
+                return []
+
+            imagenes_total: List[Dict] = []
+            for gal in galerias:
+                id_gallery = gal.get('id_gallery')
+                if not id_gallery:
+                    continue
+                imagenes = self.obtener_imagenes_galeria(id_gallery)
+                if imagenes:
+                    imagenes_total.extend(imagenes)
+
+            return imagenes_total
+        except Exception as e:
+            print(f"⚠️ Error obteniendo imágenes para inmueble {id_inmueble}: {e}")
+            return []
+    
     def convertir_a_dataframe(self, inmuebles: List[Dict]) -> pd.DataFrame:
         """
         Convierte lista de inmuebles de WASI a DataFrame de pandas
@@ -254,6 +311,10 @@ class WasiConnector:
                     # URL
                     'url': f"https://facilinmobiliaria.com/main-inmueble-info-{inmueble.get('id_property', '')}.htm",
                     
+                    # Imágenes (se llena más abajo)
+                    'imagen_principal': None,
+                    'imagenes': None,
+                    
                     # Fecha
                     'fecha_actualizacion': inmueble.get('updated_at', ''),
                 }
@@ -304,6 +365,24 @@ class WasiConnector:
                     dato['tiene_parqueadero'] = False
                     dato['tiene_ascensor'] = False
                     dato['tiene_seguridad'] = False
+
+                # Imágenes del inmueble (si es posible obtenerlas)
+                try:
+                    id_prop = str(dato['id']) if dato.get('id') is not None else None
+                    if id_prop:
+                        imagenes_inmueble = self.obtener_imagenes_inmueble(id_prop)
+                        if imagenes_inmueble:
+                            # Guardar todas las URLs (campo 'url') y la primera como principal
+                            urls = [img.get('url') for img in imagenes_inmueble if img.get('url')]
+                            if urls:
+                                dato['imagen_principal'] = urls[0]
+                                # Guardar lista completa como JSON string para no romper el CSV
+                                try:
+                                    dato['imagenes'] = json.dumps(urls)
+                                except Exception:
+                                    dato['imagenes'] = None
+                except Exception as e:
+                    print(f"⚠️ Error obteniendo imágenes dentro de convertir_a_dataframe para inmueble {dato.get('id', 'unknown')}: {e}")
                 
                 datos_procesados.append(dato)
                 
