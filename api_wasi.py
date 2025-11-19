@@ -21,6 +21,7 @@ import numpy as np
 import os
 from datetime import datetime
 import re
+import json
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 app = Flask(__name__)
@@ -529,6 +530,24 @@ def buscar_nlp():
             # Reemplazar NaN por None para evitar valores no válidos en JSON
             resultado_limitado = resultado_limitado.where(pd.notnull(resultado_limitado), None)
             resultado_limitado = resultado_limitado.replace({np.nan: None})
+
+            # Normalizar la columna 'imagenes' para que siempre sea una lista JSON en la respuesta
+            if 'imagenes' in resultado_limitado.columns:
+                def _parse_imagenes(value):
+                    if value is None:
+                        return []
+                    if isinstance(value, list):
+                        return value
+                    if isinstance(value, str):
+                        try:
+                            parsed = json.loads(value)
+                            if isinstance(parsed, list):
+                                return parsed
+                        except Exception:
+                            pass
+                    return []
+
+                resultado_limitado['imagenes'] = resultado_limitado['imagenes'].apply(_parse_imagenes)
 
             estadisticas_resultado = {}
             if 'precio' in resultado.columns:
