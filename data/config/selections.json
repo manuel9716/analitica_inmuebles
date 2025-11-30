@@ -1,0 +1,51 @@
+[
+  {
+    "selection_id": "sel_874a396bb1dd",
+    "property_ids": [
+      "wasi:9654730",
+      "wasi:7179108"
+    ],
+    "owner_id": "demo_user",
+    "metadata": {
+      "origen": "busqueda_rapida"
+    },
+    "created_at": 1764540142.2301471,
+    "updated_at": 1764540142.2301471
+  },
+  {
+    "selection_id": "sel_157532b3bf80",
+    "property_ids": [
+      "wasi:9654730",
+      "wasi:7179108"
+    ],
+    "owner_id": "demo_user",
+    "metadata": {
+      "origen": "busqueda_rapida"
+    },
+    "created_at": 1764540144.591674,
+    "updated_at": 1764540144.591674
+  },
+  {
+    "selection_id": "sel_aa84dd932352",
+    "property_ids": [
+      "wasi:9654730",
+      "wasi:7179108"
+    ],
+    "owner_id": "demo_user",
+    "metadata": {
+      "origen": "busqueda_rapida"
+    },
+    "created_at": 1764540260.5224261,
+    "updated_at": 1764540260.5224261
+  },
+  {
+    "selection_id": "sel_4a62e23c085b",
+    "property_ids": [
+      "wasi:9654730"
+    ],
+    "owner_id": null,
+    "metadata": {},
+    "created_at": 1764540285.508397,
+    "updated_at": 1764540285.508397
+  }
+]
