@@ -36,6 +36,7 @@ modelo = None
 wasi_connector = None
 ultima_sincronizacion = None
 modelo_nlp = None
+conversaciones_activas = {}
 
 
 def parsear_texto_a_criterios(texto):
@@ -238,7 +239,7 @@ def inicializar_sistema():
     wasi_connector = WasiConnector(ID_COMPANY, WASI_TOKEN)
     
     # Verificar si existe dataset reciente
-    archivo_datos = 'inmuebles_wasi_real.csv'
+    archivo_datos = 'data/datasets/inmuebles_wasi_real.csv'
     sincronizar = True
     
     if os.path.exists(archivo_datos):
@@ -274,7 +275,7 @@ def inicializar_sistema():
     modelo.preprocesar_datos()
     
     # Cargar o entrenar modelo
-    archivo_modelo = 'modelo_wasi.pkl'
+    archivo_modelo = 'data/models/modelo_wasi.pkl'
     if os.path.exists(archivo_modelo) and not sincronizar:
         print("📦 Cargando modelo pre-entrenado...")
         modelo.cargar_modelo(archivo_modelo)
@@ -298,7 +299,7 @@ def inicializar_sistema():
 
     # Cargar modelo NLP si existe
     try:
-        ruta_nlp = 'modelo_nlp_inmuebles.pkl'
+        ruta_nlp = 'data/models/modelo_nlp_inmuebles.pkl'
         if os.path.exists(ruta_nlp):
             modelo_nlp = cargar_modelo_nlp(ruta_nlp)
             print(f"✓ Modelo NLP cargado desde: {ruta_nlp}")
@@ -359,6 +360,304 @@ def estadisticas():
             'area_promedio': float(df['area_total'].mean()) if 'area_total' in df.columns else 0
         }
         return jsonify(stats)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/buscar-nlp-chat', methods=['POST'])
+def buscar_nlp_chat():
+    """Búsqueda conversacional de inmuebles a partir de texto en lenguaje natural.
+
+    Mantiene un contexto de búsqueda por session_id y acumula criterios entre turnos.
+
+    Espera un JSON de entrada como:
+    {
+        "session_id": "usuario-123",
+        "texto": "que tenga parqueadero",
+        "reiniciar": false  # opcional, para resetear la conversación
+    }
+    """
+    try:
+        data = request.get_json()
+
+        if not data or 'texto' not in data or 'session_id' not in data:
+            return jsonify({'error': 'Debe enviar "session_id" y un campo "texto" con la descripción de lo que busca'}), 400
+
+        session_id = str(data.get('session_id')).strip()
+        if not session_id:
+            return jsonify({'error': 'El campo "session_id" no puede estar vacío'}), 400
+
+        texto = data.get('texto', '')
+        reiniciar = bool(data.get('reiniciar', False))
+
+        # Recuperar estado previo de la conversación
+        estado_prev = {} if reiniciar else conversaciones_activas.get(session_id, {})
+        criterios_previos = dict(estado_prev.get('criterios', {}))
+
+        # 1) Inferir criterios del turno actual mediante reglas
+        criterios_turno_reglas = parsear_texto_a_criterios(texto)
+
+        # Criterios acumulados = anteriores + nuevos (los nuevos pueden sobrescribir)
+        criterios_acumulados = dict(criterios_previos)
+        for k, v in criterios_turno_reglas.items():
+            criterios_acumulados[k] = v
+
+        # 2) Complementar con modelo NLP entrenado (si está cargado)
+        predicciones_nlp = {}
+        if modelo_nlp is not None:
+            try:
+                predicciones_nlp = predecir_desde_texto(modelo_nlp, texto)
+            except Exception as e:
+                print(f"Error al predecir con modelo NLP (chat): {e}")
+
+        # Combinar predicciones NLP con criterios acumulados
+        if predicciones_nlp:
+            # tipo_negocio desde 'operacion'
+            if 'operacion' in predicciones_nlp and 'tipo_negocio' not in criterios_acumulados:
+                op = str(predicciones_nlp['operacion']).strip().lower()
+                if op == 'arriendo':
+                    criterios_acumulados['tipo_negocio'] = 'Arriendo'
+                elif op == 'venta':
+                    criterios_acumulados['tipo_negocio'] = 'Venta'
+
+            # ciudad
+            if 'ciudad' in predicciones_nlp and 'ciudad' not in criterios_acumulados:
+                criterios_acumulados['ciudad'] = predicciones_nlp['ciudad']
+
+            # precio_rango -> precio_min / precio_max usando el mismo parser
+            if 'precio_rango' in predicciones_nlp:
+                rango_texto = str(predicciones_nlp['precio_rango'])
+                criterios_precio = parsear_texto_a_criterios(rango_texto)
+                for k in ['precio_min', 'precio_max']:
+                    if k in criterios_precio and k not in criterios_acumulados:
+                        criterios_acumulados[k] = criterios_precio[k]
+
+            # parqueadero: 0,1,2... -> booleano tiene_parqueadero
+            if 'parqueadero' in predicciones_nlp and 'tiene_parqueadero' not in criterios_acumulados:
+                try:
+                    num_parq = int(predicciones_nlp['parqueadero'])
+                    if num_parq >= 1:
+                        criterios_acumulados['tiene_parqueadero'] = True
+                except ValueError:
+                    pass
+
+        if not criterios_acumulados:
+            # Loggear consulta sin criterios claros
+            try:
+                guardar_consulta_nlp(
+                    texto_usuario=texto,
+                    criterios_inferidos=criterios_acumulados,
+                    predicciones_nlp=predicciones_nlp,
+                    filtros_relajados=[],
+                    total_encontrados=0,
+                    total_retornados=0,
+                )
+            except Exception as e:
+                print(f"⚠️ Error al guardar consulta NLP (chat sin criterios): {e}")
+
+            return jsonify({
+                'mensaje': 'No se pudieron inferir criterios claros a partir del texto. Intenta ser más específico.',
+                'session_id': session_id,
+                'texto_original': texto,
+                'criterios_turno': criterios_turno_reglas,
+                'criterios_acumulados': criterios_acumulados,
+                'predicciones_nlp': predicciones_nlp,
+                'filtros_relajados': [],
+                'total_encontrados': 0,
+                'total_retornados': 0,
+                'resultados': []
+            }), 200
+
+        # --- Búsqueda con relajación progresiva de filtros (misma lógica que /buscar-nlp) ---
+        filtros_relajados = []
+
+        def ejecutar_busqueda(crit):
+            try:
+                return modelo.categorizar_inmuebles(crit)
+            except Exception:
+                return modelo.df.copy() * 0  # DataFrame vacío en caso de error
+
+        # 1) Intento inicial con todos los criterios acumulados
+        criterios_busqueda = dict(criterios_acumulados)
+        resultado = ejecutar_busqueda(criterios_busqueda)
+
+        # 2) Si no hay resultados, relajar progresivamente filtros
+        if len(resultado) == 0:
+            # No relajamos 'tiene_parqueadero' para que, si el usuario lo pide, sea un filtro duro
+            orden_relajacion = [
+                ['precio_min', 'precio_max'],
+                ['ciudad'],
+                ['tipo_negocio'],
+                ['amoblado'],
+                ['mascotas'],
+                ['balcon'],
+                ['terraza'],
+            ]
+
+            criterios_relajados = dict(criterios_busqueda)
+
+            for grupo in orden_relajacion:
+                alguno_eliminado = False
+                for clave in grupo:
+                    if clave in criterios_relajados:
+                        criterios_relajados.pop(clave)
+                        filtros_relajados.append(clave)
+                        alguno_eliminado = True
+                if not alguno_eliminado:
+                    continue
+
+                resultado = ejecutar_busqueda(criterios_relajados)
+                if len(resultado) > 0:
+                    criterios_busqueda = criterios_relajados
+                    break
+
+        if len(resultado) > 0:
+            # Ordenar resultados por similitud con el texto del turno actual
+            try:
+                df_tmp = resultado.copy()
+                for col in ['titulo', 'descripcion', 'ciudad', 'zona']:
+                    if col not in df_tmp.columns:
+                        df_tmp[col] = ''
+                textos_inmuebles = (
+                    df_tmp['titulo'].fillna('').astype(str) + ' ' +
+                    df_tmp['descripcion'].fillna('').astype(str) + ' ' +
+                    df_tmp['ciudad'].fillna('').astype(str) + ' ' +
+                    df_tmp['zona'].fillna('').astype(str)
+                )
+
+                corpus = [texto] + textos_inmuebles.tolist()
+                vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1, 2))
+                tfidf_matrix = vectorizer.fit_transform(corpus)
+
+                user_vec = tfidf_matrix[0]
+                inmuebles_vecs = tfidf_matrix[1:]
+                similitudes = inmuebles_vecs.dot(user_vec.T).toarray().ravel()
+
+                df_tmp = df_tmp.copy()
+                df_tmp['score_similitud'] = similitudes
+
+                resultado_ordenado = df_tmp.sort_values(by='score_similitud', ascending=False)
+            except Exception:
+                resultado_ordenado = resultado
+
+            resultado_limitado = resultado_ordenado.head(100)
+
+            resultado_limitado = resultado_limitado.where(pd.notnull(resultado_limitado), None)
+            resultado_limitado = resultado_limitado.replace({np.nan: None})
+
+            if 'imagenes' in resultado_limitado.columns:
+                def _parse_imagenes(value):
+                    if value is None:
+                        return []
+                    if isinstance(value, list):
+                        return value
+                    if isinstance(value, str):
+                        try:
+                            parsed = json.loads(value)
+                            if isinstance(parsed, list):
+                                return parsed
+                        except Exception:
+                            pass
+                    return []
+
+                resultado_limitado['imagenes'] = resultado_limitado['imagenes'].apply(_parse_imagenes)
+
+            estadisticas_resultado = {}
+            if 'precio' in resultado.columns:
+                estadisticas_resultado = {
+                    'precio_promedio': float(resultado['precio'].mean()),
+                    'precio_minimo': float(resultado['precio'].min()),
+                    'precio_maximo': float(resultado['precio'].max()),
+                }
+
+            if filtros_relajados:
+                detalle_relajados = ", ".join(filtros_relajados)
+                mensaje = (
+                    f"No se encontraron inmuebles que cumplieran todos los criterios exactos, "
+                    f"pero se relajaron los filtros [{detalle_relajados}] y se encontraron "
+                    f"{len(resultado)} inmuebles (mostrando {len(resultado_limitado)})."
+                )
+            else:
+                mensaje = (
+                    f"Se encontraron {len(resultado)} inmuebles que coinciden con la descripción, "
+                    f"mostrando {len(resultado_limitado)}."
+                )
+
+            # Determinar qué criterios cambiaron en este turno (dif entre previos y acumulados)
+            criterios_turno = {}
+            for k, v in criterios_acumulados.items():
+                if k not in criterios_previos or criterios_previos.get(k) != v:
+                    criterios_turno[k] = v
+
+            # Actualizar estado de conversación en memoria
+            conversaciones_activas[session_id] = {
+                'criterios': dict(criterios_acumulados),
+                'filtros_relajados': list(filtros_relajados),
+            }
+
+            # Loggear consulta con resultados
+            try:
+                guardar_consulta_nlp(
+                    texto_usuario=texto,
+                    criterios_inferidos=criterios_acumulados,
+                    predicciones_nlp=predicciones_nlp,
+                    filtros_relajados=filtros_relajados,
+                    total_encontrados=len(resultado),
+                    total_retornados=len(resultado_limitado),
+                )
+            except Exception as e:
+                print(f"⚠️ Error al guardar consulta NLP (chat con resultados): {e}")
+
+            return jsonify({
+                'mensaje': mensaje,
+                'session_id': session_id,
+                'texto_original': texto,
+                'criterios_turno': criterios_turno,
+                'criterios_acumulados': criterios_acumulados,
+                'predicciones_nlp': predicciones_nlp,
+                'filtros_relajados': filtros_relajados,
+                'total_encontrados': len(resultado),
+                'total_retornados': len(resultado_limitado),
+                'estadisticas': estadisticas_resultado,
+                'resultados': resultado_limitado.to_dict('records')
+            })
+        else:
+            # Determinar qué criterios cambiaron en este turno incluso si no hay resultados
+            criterios_turno = {}
+            for k, v in criterios_acumulados.items():
+                if k not in criterios_previos or criterios_previos.get(k) != v:
+                    criterios_turno[k] = v
+
+            conversaciones_activas[session_id] = {
+                'criterios': dict(criterios_acumulados),
+                'filtros_relajados': list(filtros_relajados),
+            }
+
+            try:
+                guardar_consulta_nlp(
+                    texto_usuario=texto,
+                    criterios_inferidos=criterios_acumulados,
+                    predicciones_nlp=predicciones_nlp,
+                    filtros_relajados=filtros_relajados,
+                    total_encontrados=0,
+                    total_retornados=0,
+                )
+            except Exception as e:
+                print(f"⚠️ Error al guardar consulta NLP (chat sin resultados): {e}")
+
+            return jsonify({
+                'mensaje': 'No se encontraron inmuebles que coincidan con la descripción proporcionada, incluso relajando filtros principales',
+                'session_id': session_id,
+                'texto_original': texto,
+                'criterios_turno': criterios_turno,
+                'criterios_acumulados': criterios_acumulados,
+                'predicciones_nlp': predicciones_nlp,
+                'filtros_relajados': filtros_relajados,
+                'total_encontrados': 0,
+                'total_retornados': 0,
+                'resultados': []
+            })
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -462,11 +761,11 @@ def buscar_nlp():
         # 2) Si no hay resultados, relajar progresivamente filtros
         if len(resultado) == 0:
             # Definimos un orden de relajación de filtros, de más estrictos a menos críticos
+            # Nota: no relajamos 'tiene_parqueadero' para respetar explícitamente este criterio
             orden_relajacion = [
                 ['precio_min', 'precio_max'],
                 ['ciudad'],
                 ['tipo_negocio'],
-                ['tiene_parqueadero'],
                 ['amoblado'],
                 ['mascotas'],
                 ['balcon'],

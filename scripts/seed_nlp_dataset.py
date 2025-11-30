@@ -5,7 +5,7 @@ from db_nlp_logs import PG_CONFIG
 
 
 TABLE_NAME = "nlp_dataset_anotado"
-CSV_PATH = "dataset_nlp_inmuebles_5000.csv"
+CSV_PATH = "data/datasets/dataset_nlp_inmuebles_5000.csv"
 
 
 COLUMNS = [
