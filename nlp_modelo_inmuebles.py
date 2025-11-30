@@ -13,7 +13,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 
 
-def cargar_dataset_nlp(ruta: str = "dataset_nlp_inmuebles_5000.csv") -> pd.DataFrame:
+def cargar_dataset_nlp(ruta: str = "data/datasets/dataset_nlp_inmuebles_5000.csv") -> pd.DataFrame:
     """Carga el dataset anotado para NLP.
 
     Se espera un CSV con, al menos, las columnas:
@@ -160,13 +160,13 @@ def entrenar_modelos(df: pd.DataFrame) -> Dict[str, Any]:
     }
 
 
-def guardar_modelo_nlp(obj: Dict[str, Any], ruta: str = "modelo_nlp_inmuebles.pkl") -> None:
+def guardar_modelo_nlp(obj: Dict[str, Any], ruta: str = "data/models/modelo_nlp_inmuebles.pkl") -> None:
     """Guarda en disco el diccionario de modelos y label_encoders."""
     joblib.dump(obj, ruta)
     print(f"\n✓ Modelo NLP guardado en: {ruta}")
 
 
-def cargar_modelo_nlp(ruta: str = "modelo_nlp_inmuebles.pkl") -> Dict[str, Any]:
+def cargar_modelo_nlp(ruta: str = "data/models/modelo_nlp_inmuebles.pkl") -> Dict[str, Any]:
     """Carga el modelo NLP previamente entrenado."""
     return joblib.load(ruta)
 
