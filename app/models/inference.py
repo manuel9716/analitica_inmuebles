@@ -3,7 +3,7 @@ import pandas as pd
 from typing import Any, Dict
 
 class InmueblesInferenceModel:
-    def __init__(self, model_path: str = "modelo_wasi.pkl") -> None:
+    def __init__(self, model_path: str = "data/models/modelo_wasi.pkl") -> None:
         self._model_path = model_path
         self._loaded = False
         self._scaler = None

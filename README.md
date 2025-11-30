@@ -66,6 +66,75 @@ Sistema inteligente de análisis y categorización de inmuebles utilizando Machi
 pip install -r requirements.txt
 ```
 
+## API REST unificada (FastAPI)
+
+Este proyecto incluye una API REST unificada basada en **FastAPI** que expone el modelo de inmuebles con datos reales de WASI, un módulo de proveedores y el buscador inteligente por texto libre.
+
+### Levantar la API
+
+```bash
+python3 -m uvicorn app.main:app --reload
+```
+
+Por defecto expone la documentación interactiva en:
+
+- Swagger UI: http://127.0.0.1:8000/docs
+- OpenAPI JSON: http://127.0.0.1:8000/openapi.json
+
+### Endpoints principales
+
+- **Salud**
+  - `GET /health` → estado básico del servicio.
+
+- **Inmuebles (WASI)** – prefijo `/v1`
+  - `GET /v1/` → información general de la API y conteo de inmuebles.
+  - `GET /v1/estadisticas` → estadísticas globales del dataset WASI.
+  - `POST /v1/buscar` → búsqueda por criterios estructurados (JSON).
+  - `GET /v1/similares/{id}` → inmuebles similares a un ID de referencia.
+  - `GET /v1/inmueble/{id}` → detalle de un inmueble por ID WASI.
+  - `GET /v1/tipos` → tipos de inmuebles disponibles.
+  - `GET /v1/ciudades` → ciudades disponibles (limpiadas, sin direcciones).
+  - `GET /v1/filtros-disponibles` → lista de filtros (tipos, ciudades, rangos numéricos, etc.).
+  - `POST /v1/sincronizar` → fuerza sincronización con WASI y reentrena/carga el modelo.
+
+- **Proveedores unificados** – prefijo `/v1/providers`
+  - `GET /v1/providers` → lista de proveedores registrados (por ahora: `"wasi"`).
+  - `GET /v1/providers/properties` → propiedades normalizadas (`UnifiedProperty`) para un proveedor.
+
+- **Buscador inteligente (NLP)** – prefijo `/v1/nlp`
+  - `POST /v1/nlp/buscar` → búsqueda a partir de texto libre, combinando reglas + modelo NLP.
+  - `POST /v1/nlp/chat` → versión conversacional con `session_id` y acumulación de criterios.
+
+### Ejemplos rápidos de uso (Swagger)
+
+- Para probar filtros y estadísticas:
+  - `GET /v1/`
+  - `GET /v1/estadisticas`
+  - `GET /v1/filtros-disponibles`
+
+- Para buscar inmuebles por criterios:
+
+```json
+POST /v1/buscar
+{
+  "tipo": "Apartamento",
+  "ciudad": "Cali",
+  "precio_min": 200000000,
+  "precio_max": 800000000
+}
+```
+
+- Para búsqueda inteligente por texto:
+
+```json
+POST /v1/nlp/buscar
+{
+  "texto": "Quiero un apartamento en Cali, 3 habitaciones, con parqueadero, hasta 500 millones"
+}
+```
+
+La documentación completa y ejemplos adicionales se pueden explorar directamente en Swagger (`/docs`).
+
 ## Estructura del Proyecto
 
 ```

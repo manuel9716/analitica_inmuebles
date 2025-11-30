@@ -45,8 +45,8 @@ WASI_URL_CONFIG = {
 SYNC_CONFIG = {
     'max_inmuebles_por_sincronizacion': 1000,
     'intervalo_sincronizacion_horas': 24,
-    'archivo_salida_default': 'inmuebles_wasi_real.csv',
-    'archivo_modelo_default': 'modelo_wasi.pkl',
+    'archivo_salida_default': 'data/datasets/inmuebles_wasi_real.csv',
+    'archivo_modelo_default': 'data/models/modelo_wasi.pkl',
     'timeout_request_segundos': 30,
     'pausa_entre_requests_segundos': 0.5
 }

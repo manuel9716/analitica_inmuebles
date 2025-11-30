@@ -1,7 +1,8 @@
 from datetime import datetime
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 import json
+import re
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException
@@ -17,9 +18,9 @@ ID_COMPANY = "493728"
 WASI_TOKEN = "4kyL_tY1Q_e8yL_j0ju"
 
 # Estado global sencillo para el microservicio
-modelo: ModeloInmuebles | None = None
-wasi_connector: WasiConnector | None = None
-ultima_sincronizacion: datetime | None = None
+modelo: Optional[ModeloInmuebles] = None
+wasi_connector: Optional[WasiConnector] = None
+ultima_sincronizacion: Optional[datetime] = None
 
 
 def _inicializar_sistema() -> None:
@@ -42,7 +43,7 @@ def _inicializar_sistema() -> None:
     wasi_connector_local = WasiConnector(ID_COMPANY, WASI_TOKEN)
 
     # Verificar si existe dataset reciente
-    archivo_datos = "inmuebles_wasi_real.csv"
+    archivo_datos = "data/datasets/inmuebles_wasi_real.csv"
     sincronizar = True
 
     if os.path.exists(archivo_datos):
@@ -78,7 +79,7 @@ def _inicializar_sistema() -> None:
     modelo_local.preprocesar_datos()
 
     # Cargar o entrenar modelo
-    archivo_modelo = "modelo_wasi.pkl"
+    archivo_modelo = "data/models/modelo_wasi.pkl"
     if os.path.exists(archivo_modelo) and not sincronizar:
         print("📦 Cargando modelo pre-entrenado...")
         modelo_local.cargar_modelo(archivo_modelo)
@@ -103,6 +104,54 @@ def _ensure_initialized() -> None:
     """Inicializa el sistema si todavía no se ha hecho."""
     if globals().get("modelo") is None:
         _inicializar_sistema()
+
+
+def _filtrar_ciudades_validas(valores: list[str]) -> list[str]:
+    candidatos = []
+    patron_numero = re.compile(r"[0-9]")
+    palabras_direccion = [
+        "calle",
+        "carrera",
+        "cra ",
+        "crr",
+        "avenida",
+        "av ",
+        "ak ",
+        "#",
+        "km",
+        "kilometro",
+        "edificio",
+        "condominio",
+        "conjunto",
+        "barrio",
+        "vereda",
+        "parcelacion",
+        "parcelación",
+        "sector",
+        "manzana",
+        "torre",
+        "apto",
+        "apartamento",
+    ]
+
+    for valor in valores:
+        v = valor.strip()
+        if not v:
+            continue
+        v_lower = v.lower()
+        if patron_numero.search(v_lower):
+            continue
+        if any(p in v_lower for p in palabras_direccion):
+            continue
+        candidatos.append(v)
+
+    vistos = set()
+    resultado: list[str] = []
+    for v in candidatos:
+        if v not in vistos:
+            vistos.add(v)
+            resultado.append(v)
+    return resultado
 
 
 @router.get("/", summary="Información de la API de inmuebles")
@@ -313,7 +362,8 @@ async def ciudades() -> Dict[str, Any]:
 
         df_ciudades = modelo.df.dropna(subset=["ciudad"])
 
-        ciudades_disponibles = [str(c) for c in df_ciudades["ciudad"].unique().tolist()]
+        ciudades_brutas = [str(c) for c in df_ciudades["ciudad"].unique().tolist()]
+        ciudades_disponibles = _filtrar_ciudades_validas(ciudades_brutas)
 
         conteo_raw = df_ciudades["ciudad"].value_counts().to_dict()
         conteo = {str(k): int(v) for k, v in conteo_raw.items()}
@@ -368,7 +418,7 @@ async def filtros_disponibles() -> Dict[str, Any]:
 
         filtros = {
             "tipos": lista_sin_nan("tipo"),
-            "ciudades": lista_sin_nan("ciudad"),
+            "ciudades": _filtrar_ciudades_validas(lista_sin_nan("ciudad")),
             "zonas": lista_sin_nan("zona"),
             "tipo_negocio": lista_sin_nan("tipo_negocio"),
             "habitaciones": lista_int_sin_nan("habitaciones"),
