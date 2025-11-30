@@ -1,0 +1,12 @@
+{
+  "weight_price": 0.3,
+  "weight_bedrooms": 0.2,
+  "weight_bathrooms": 0.15,
+  "weight_area": 0.15,
+  "weight_location": 0.2,
+  "min_affinity": 0.9,
+  "level_very_low": 0.4,
+  "level_medium": 0.6,
+  "level_high": 0.8,
+  "level_very_high": 0.9
+}
