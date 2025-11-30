@@ -122,6 +122,25 @@ Por defecto expone la documentación interactiva en:
   - Los inmuebles destacados definidos en `/v1/providers/highlights` aparecen primero si cumplen los criterios.
   - Se respeta el orden de prioridad de proveedores configurado en `/v1/providers/priority`.
 
+- **Selección múltiple de inmuebles** – prefijo `/v1/selection`
+  - `POST /v1/selection/` → crea una selección con una lista de `property_ids` (IDs unificados como `source:source_id`).
+  - `POST /v1/selection/{selection_id}/add` → agrega inmuebles a una selección existente.
+  - `POST /v1/selection/{selection_id}/remove` → elimina inmuebles de una selección existente.
+  - `GET /v1/selection/{selection_id}` → obtiene el detalle de una selección (solo IDs y metadatos).
+  - `GET /v1/selection/` → lista selecciones activas, opcionalmente filtradas por `owner_id`.
+  - `GET /v1/selection/{selection_id}/properties` → devuelve las propiedades de una selección usando el motor de búsqueda rápida, incluyendo afinidad.
+
+- **Agendamiento inteligente** – prefijo `/v1/appointments`
+  - `POST /v1/appointments/` → crea una cita de agendamiento a partir de `property_ids` y/o `selection_id`, datos del solicitante y ventana de tiempo.
+  - `GET /v1/appointments/{appointment_id}` → obtiene el detalle de una cita.
+  - `GET /v1/appointments/` → lista citas, opcionalmente filtradas por `owner_id`.
+  - `POST /v1/appointments/{appointment_id}/status` → actualiza el estado de una cita (`pending`, `confirmed`, `cancelled`).
+
+  El módulo de agendamiento reutiliza el motor de búsqueda y la selección múltiple, y resuelve automáticamente el teléfono de contacto: si un inmueble no tiene uno específico, usa un número general preconfigurado.
+
+- **Capa de voz (IA por voz)** – prefijo `/v1/voice`
+  - `POST /v1/voice/command` → recibe texto transcrito desde voz (`{"texto": "..."}`) y delega en el motor NLP textual (`/v1/nlp/buscar`), devolviendo la misma estructura de respuesta dentro de `nlp_response`.
+
 ### Ejemplos rápidos de uso (Swagger)
 
 - Para probar filtros y estadísticas:
