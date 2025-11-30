@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 from modelo_inmuebles import ModeloInmuebles
 from integrations.wasi.wasi_connector import WasiConnector
+from integrations.search.engine import SearchEngine, SearchResult
 
 
 router = APIRouter(prefix="/v1", tags=["inmuebles"])
@@ -21,6 +22,7 @@ WASI_TOKEN = "4kyL_tY1Q_e8yL_j0ju"
 modelo: Optional[ModeloInmuebles] = None
 wasi_connector: Optional[WasiConnector] = None
 ultima_sincronizacion: Optional[datetime] = None
+search_engine: SearchEngine = SearchEngine()
 
 
 def _inicializar_sistema() -> None:
@@ -212,19 +214,22 @@ async def estadisticas() -> Dict[str, Any]:
 
 @router.post("/buscar", summary="Buscar inmuebles según criterios")
 async def buscar(criterios: Dict[str, Any]) -> Dict[str, Any]:
-    """Busca inmuebles según criterios proporcionados en el cuerpo JSON."""
-    _ensure_initialized()
-    assert modelo is not None
+    """Busca inmuebles según criterios proporcionados en el cuerpo JSON.
 
+    Ahora utiliza el SearchEngine en memoria para aplicar filtros, prioridades
+    de proveedores e inmuebles destacados, y afinidad.
+    """
+
+    _ensure_initialized()
     if not criterios:
         raise HTTPException(status_code=400, detail="No se proporcionaron criterios de búsqueda")
 
     try:
-        print(f"\n🔍 Búsqueda recibida: {criterios}")
+        print(f"\n🔍 Búsqueda recibida (motor rápido): {criterios}")
 
-        resultado = modelo.categorizar_inmuebles(criterios)
-
-        if len(resultado) == 0:
+        # Usamos un límite alto para conocer el total y luego paginar manualmente
+        all_results: list[SearchResult] = search_engine.search(criterios, limit=1000)
+        if not all_results:
             return {
                 "total_encontrados": 0,
                 "total_retornados": 0,
@@ -233,38 +238,66 @@ async def buscar(criterios: Dict[str, Any]) -> Dict[str, Any]:
                 "mensaje": "No se encontraron inmuebles con los criterios especificados",
             }
 
-        resultado_limitado = resultado.head(100).copy()
+        # Limitar a los primeros 100 para la respuesta
+        limited_results = all_results[:100]
 
-        # Asegurar que la columna 'imagenes' (si existe) sea una lista JSON en la respuesta
-        if "imagenes" in resultado_limitado.columns:
-            def _parse_imagenes(value: Any) -> Any:
+        # Construir respuesta homogénea a partir de UnifiedProperty.raw
+        items: list[Dict[str, Any]] = []
+        precios: list[float] = []
+
+        for r in limited_results:
+            prop = r.property
+            raw: Dict[str, Any] = dict(prop.raw or {})
+
+            # Añadir campos de afinidad para consumo de front/IA
+            raw["affinity_score"] = float(r.affinity_score)
+            raw["affinity_level"] = r.affinity_level
+
+            # Si el precio está en UnifiedProperty, usarlo como referencia
+            if prop.price is not None:
+                try:
+                    precios.append(float(prop.price))
+                except (TypeError, ValueError):
+                    pass
+
+            # Normalizar campo imagenes si existe
+            if "imagenes" in raw:
+                value = raw["imagenes"]
                 if value is None or (isinstance(value, float) and pd.isna(value)):
-                    return []
-                if isinstance(value, list):
-                    return value
-                if isinstance(value, str):
+                    raw["imagenes"] = []
+                elif isinstance(value, list):
+                    raw["imagenes"] = value
+                elif isinstance(value, str):
                     try:
                         parsed = json.loads(value)
-                        if isinstance(parsed, list):
-                            return parsed
+                        raw["imagenes"] = parsed if isinstance(parsed, list) else []
                     except Exception:
-                        pass
-                return []
+                        raw["imagenes"] = []
+                else:
+                    raw["imagenes"] = []
 
-            resultado_limitado["imagenes"] = resultado_limitado["imagenes"].apply(_parse_imagenes)
+            items.append(raw)
 
-        estadisticas_resultado = {
-            "precio_promedio": float(resultado["precio"].mean()),
-            "precio_minimo": float(resultado["precio"].min()),
-            "precio_maximo": float(resultado["precio"].max()),
-        }
+        # Estadísticas simples basadas en precios
+        if not precios:
+            estadisticas_resultado = {
+                "precio_promedio": 0.0,
+                "precio_minimo": 0.0,
+                "precio_maximo": 0.0,
+            }
+        else:
+            estadisticas_resultado = {
+                "precio_promedio": float(sum(precios) / len(precios)),
+                "precio_minimo": float(min(precios)),
+                "precio_maximo": float(max(precios)),
+            }
 
         return {
-            "total_encontrados": len(resultado),
-            "total_retornados": len(resultado_limitado),
+            "total_encontrados": len(all_results),
+            "total_retornados": len(limited_results),
             "criterios": criterios,
             "estadisticas": estadisticas_resultado,
-            "resultados": resultado_limitado.to_dict("records"),
+            "resultados": items,
         }
     except HTTPException:
         raise
