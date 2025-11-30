@@ -1,0 +1,29 @@
+[
+  {
+    "appointment_id": "appt_c351bfc0215f",
+    "property_ids": [
+      "wasi:9654730"
+    ],
+    "owner_id": "user_demo",
+    "selection_id": null,
+    "channel": "web",
+    "requester": {
+      "name": "Manuel",
+      "email": "manu@example.com",
+      "phone": "+57 300 000 1111",
+      "preferred_contact": "whatsapp"
+    },
+    "time_window": {
+      "from": "2025-11-23T09:00:00",
+      "to": "2025-11-23T18:00:00"
+    },
+    "notes": "Prueba cita individual",
+    "status": "pending",
+    "contact_phone_used": "+57 300 000 0000",
+    "metadata": {
+      "origen": "boton_inmueble"
+    },
+    "created_at": 1764541457.187496,
+    "updated_at": 1764541457.187496
+  }
+]
