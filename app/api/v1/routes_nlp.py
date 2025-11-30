@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from app.api.v1 import routes_inmuebles
 from db_nlp_logs import guardar_consulta_nlp
+from integrations.affinity.engine import AffinityEngine
 from integrations.providers.highlight import rank_properties
 from integrations.providers.models import UnifiedProperty
 from nlp_modelo_inmuebles import cargar_modelo_nlp, predecir_desde_texto
@@ -20,6 +21,8 @@ router = APIRouter(prefix="/v1/nlp", tags=["nlp"])
 
 modelo_nlp: Optional[Dict[str, Any]] = None
 conversaciones_activas: Dict[str, Dict[str, Any]] = {}
+
+affinity_engine = AffinityEngine()
 
 
 class BuscarNLPRequest(BaseModel):
@@ -212,9 +215,11 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
     modelo = _get_modelo_inmuebles()
     texto = payload.texto
 
+    # 1) Inferir criterios por reglas
     criterios_reglas = _parsear_texto_a_criterios(texto)
     criterios: Dict[str, Any] = dict(criterios_reglas)
 
+    # 2) Inferir criterios con el modelo NLP (si está disponible)
     predicciones_nlp: Dict[str, Any] = {}
     modelo_nlp_local = _get_modelo_nlp()
     if modelo_nlp_local is not None:
@@ -249,11 +254,14 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
             except ValueError:
                 pass
 
+    # Guardar una copia de los criterios originales (antes de relajar)
+    criterios_originales: Dict[str, Any] = dict(criterios)
+
     if not criterios:
         try:
             guardar_consulta_nlp(
                 texto_usuario=texto,
-                criterios_inferidos=criterios,
+                criterios_inferidos=criterios_originales,
                 predicciones_nlp=predicciones_nlp,
                 filtros_relajados=[],
                 total_encontrados=0,
@@ -280,294 +288,11 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
         except Exception:
             return modelo.df.copy() * 0
 
-    resultado = ejecutar_busqueda(criterios)
-
-    if len(resultado) == 0:
-        orden_relajacion = [
-            ["precio_min", "precio_max"],
-            ["ciudad"],
-            ["tipo_negocio"],
-            ["amoblado"],
-            ["mascotas"],
-            ["balcon"],
-            ["terraza"],
-        ]
-
-        criterios_relajados = dict(criterios)
-
-        for grupo in orden_relajacion:
-            alguno_eliminado = False
-            for clave in grupo:
-                if clave in criterios_relajados:
-                    criterios_relajados.pop(clave)
-                    filtros_relajados.append(clave)
-                    alguno_eliminado = True
-            if not alguno_eliminado:
-                continue
-
-            resultado = ejecutar_busqueda(criterios_relajados)
-            if len(resultado) > 0:
-                criterios = criterios_relajados
-                break
-
-    if len(resultado) > 0:
-        try:
-            df_tmp = resultado.copy()
-            for col in ["titulo", "descripcion", "ciudad", "zona"]:
-                if col not in df_tmp.columns:
-                    df_tmp[col] = ""
-            textos_inmuebles = (
-                df_tmp["titulo"].fillna("").astype(str)
-                + " "
-                + df_tmp["descripcion"].fillna("").astype(str)
-                + " "
-                + df_tmp["ciudad"].fillna("").astype(str)
-                + " "
-                + df_tmp["zona"].fillna("").astype(str)
-            )
-
-            corpus = [texto] + textos_inmuebles.tolist()
-            from sklearn.feature_extraction.text import TfidfVectorizer
-
-            vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1, 2))
-            tfidf_matrix = vectorizer.fit_transform(corpus)
-
-            user_vec = tfidf_matrix[0]
-            inmuebles_vecs = tfidf_matrix[1:]
-            similitudes = inmuebles_vecs.dot(user_vec.T).toarray().ravel()
-
-            df_tmp = df_tmp.copy()
-            df_tmp["score_similitud"] = similitudes
-
-            resultado_ordenado = df_tmp.sort_values(by="score_similitud", ascending=False)
-        except Exception:
-            resultado_ordenado = resultado
-
-        resultado_limitado = resultado_ordenado.head(100).copy()
-
-        resultado_limitado = resultado_limitado.where(pd.notnull(resultado_limitado), None)
-        resultado_limitado = resultado_limitado.replace({np.nan: None})
-
-        try:
-            props: List[UnifiedProperty] = []
-            for _, row in resultado_limitado.iterrows():
-                row_dict = row.to_dict()
-                source_id = str(row_dict.get("id", "") or "")
-                if not source_id:
-                    continue
-
-                unified_id = f"wasi:{source_id}"
-
-                prop = UnifiedProperty(
-                    id=unified_id,
-                    source="wasi",
-                    source_id=source_id,
-                    title=row_dict.get("titulo") or None,
-                    description=row_dict.get("descripcion") or None,
-                    price=None,
-                    currency="COP",
-                    area_m2=None,
-                    bedrooms=None,
-                    bathrooms=None,
-                    country=None,
-                    city=(row_dict.get("ciudad") or None),
-                    zone=(row_dict.get("zona") or None),
-                    address=(row_dict.get("direccion") or None),
-                    images=[],
-                    phones=[],
-                    contact_name=None,
-                    raw=row_dict,
-                )
-                props.append(prop)
-
-            ranked = rank_properties(props)
-            order_index = {p.source_id: idx for idx, p in enumerate(ranked)}
-
-            if "id" in resultado_limitado.columns:
-                resultado_limitado["_rank_priority"] = (
-                    resultado_limitado["id"].astype(str).map(order_index)
-                )
-                resultado_limitado = resultado_limitado.sort_values("_rank_priority", na_position="last")
-                resultado_limitado = resultado_limitado.drop(columns=["_rank_priority"])
-        except Exception:
-            pass
-
-        if "imagenes" in resultado_limitado.columns:
-            def _parse_imagenes(value: Any) -> List[str]:
-                if value is None:
-                    return []
-                if isinstance(value, list):
-                    return value
-                if isinstance(value, str):
-                    try:
-                        parsed = json.loads(value)
-                        if isinstance(parsed, list):
-                            return parsed
-                    except Exception:
-                        pass
-                return []
-
-            resultado_limitado["imagenes"] = resultado_limitado["imagenes"].apply(_parse_imagenes)
-
-        estadisticas_resultado: Dict[str, Any] = {}
-        if "precio" in resultado.columns:
-            estadisticas_resultado = {
-                "precio_promedio": float(resultado["precio"].mean()),
-                "precio_minimo": float(resultado["precio"].min()),
-                "precio_maximo": float(resultado["precio"].max()),
-            }
-
-        if filtros_relajados:
-            detalle_relajados = ", ".join(filtros_relajados)
-            mensaje = (
-                "No se encontraron inmuebles que cumplieran todos los criterios exactos, "
-                f"pero se relajaron los filtros [{detalle_relajados}] y se encontraron "
-                f"{len(resultado)} inmuebles (mostrando {len(resultado_limitado)})."
-            )
-        else:
-            mensaje = (
-                f"Se encontraron {len(resultado)} inmuebles que coinciden con la descripción, "
-                f"mostrando {len(resultado_limitado)}."
-            )
-
-        try:
-            guardar_consulta_nlp(
-                texto_usuario=texto,
-                criterios_inferidos=criterios,
-                predicciones_nlp=predicciones_nlp,
-                filtros_relajados=filtros_relajados,
-                total_encontrados=len(resultado),
-                total_retornados=len(resultado_limitado),
-            )
-        except Exception:
-            pass
-
-        return {
-            "mensaje": mensaje,
-            "texto_original": texto,
-            "criterios_inferidos": criterios,
-            "predicciones_nlp": predicciones_nlp,
-            "filtros_relajados": filtros_relajados,
-            "total_encontrados": len(resultado),
-            "total_retornados": len(resultado_limitado),
-            "estadisticas": estadisticas_resultado,
-            "resultados": resultado_limitado.to_dict("records"),
-        }
-
-    try:
-        guardar_consulta_nlp(
-            texto_usuario=texto,
-            criterios_inferidos=criterios,
-            predicciones_nlp=predicciones_nlp,
-            filtros_relajados=filtros_relajados,
-            total_encontrados=0,
-            total_retornados=0,
-        )
-    except Exception:
-        pass
-
-    return {
-        "mensaje": "No se encontraron inmuebles que coincidan con la descripción proporcionada, incluso relajando filtros principales",
-        "texto_original": texto,
-        "criterios_inferidos": criterios,
-        "predicciones_nlp": predicciones_nlp,
-        "filtros_relajados": filtros_relajados,
-        "total_encontrados": 0,
-        "total_retornados": 0,
-        "resultados": [],
-    }
-
-
-@router.post("/chat")
-async def buscar_nlp_chat(payload: BuscarNLPChatRequest) -> Dict[str, Any]:
-    modelo = _get_modelo_inmuebles()
-    texto = payload.texto
-    session_id = payload.session_id.strip()
-    if not session_id:
-        raise HTTPException(status_code=400, detail='El campo "session_id" no puede estar vacío')
-
-    reiniciar = bool(payload.reiniciar)
-
-    estado_prev = {} if reiniciar else conversaciones_activas.get(session_id, {})
-    criterios_previos = dict(estado_prev.get("criterios", {}))
-
-    criterios_turno_reglas = _parsear_texto_a_criterios(texto)
-
-    criterios_acumulados: Dict[str, Any] = dict(criterios_previos)
-    for k, v in criterios_turno_reglas.items():
-        criterios_acumulados[k] = v
-
-    predicciones_nlp: Dict[str, Any] = {}
-    modelo_nlp_local = _get_modelo_nlp()
-    if modelo_nlp_local is not None:
-        try:
-            predicciones_nlp = predecir_desde_texto(modelo_nlp_local, texto)
-        except Exception:
-            predicciones_nlp = {}
-
-    if predicciones_nlp:
-        if "operacion" in predicciones_nlp and "tipo_negocio" not in criterios_acumulados:
-            op = str(predicciones_nlp["operacion"]).strip().lower()
-            if op == "arriendo":
-                criterios_acumulados["tipo_negocio"] = "Arriendo"
-            elif op == "venta":
-                criterios_acumulados["tipo_negocio"] = "Venta"
-
-        if "ciudad" in predicciones_nlp and "ciudad" not in criterios_acumulados:
-            criterios_acumulados["ciudad"] = predicciones_nlp["ciudad"]
-
-        if "precio_rango" in predicciones_nlp:
-            rango_texto = str(predicciones_nlp["precio_rango"])
-            criterios_precio = _parsear_texto_a_criterios(rango_texto)
-            for k in ["precio_min", "precio_max"]:
-                if k in criterios_precio and k not in criterios_acumulados:
-                    criterios_acumulados[k] = criterios_precio[k]
-
-        if "parqueadero" in predicciones_nlp and "tiene_parqueadero" not in criterios_acumulados:
-            try:
-                num_parq = int(predicciones_nlp["parqueadero"])
-                if num_parq >= 1:
-                    criterios_acumulados["tiene_parqueadero"] = True
-            except ValueError:
-                pass
-
-    filtros_relajados: List[str] = []
-
-    if not criterios_acumulados:
-        try:
-            guardar_consulta_nlp(
-                texto_usuario=texto,
-                criterios_inferidos=criterios_acumulados,
-                predicciones_nlp=predicciones_nlp,
-                filtros_relajados=filtros_relajados,
-                total_encontrados=0,
-                total_retornados=0,
-            )
-        except Exception:
-            pass
-
-        return {
-            "mensaje": "No se pudieron inferir criterios claros a partir del texto. Intenta ser más específico.",
-            "session_id": session_id,
-            "texto_original": texto,
-            "criterios_turno": criterios_turno_reglas,
-            "criterios_acumulados": criterios_acumulados,
-            "predicciones_nlp": predicciones_nlp,
-            "filtros_relajados": filtros_relajados,
-            "total_encontrados": 0,
-            "total_retornados": 0,
-            "resultados": [],
-        }
-
-    def ejecutar_busqueda(crit: Dict[str, Any]):
-        try:
-            return modelo.categorizar_inmuebles(crit)
-        except Exception:
-            return modelo.df.copy() * 0
-
-    criterios_busqueda = dict(criterios_acumulados)
+    # 3) Ejecutar búsqueda con criterios completos (pero permitiendo relajar sobre una copia)
+    criterios_busqueda: Dict[str, Any] = dict(criterios)
     resultado = ejecutar_busqueda(criterios_busqueda)
 
+    # 4) Relajar filtros si no hay resultados
     if len(resultado) == 0:
         orden_relajacion = [
             ["precio_min", "precio_max"],
@@ -596,6 +321,7 @@ async def buscar_nlp_chat(payload: BuscarNLPChatRequest) -> Dict[str, Any]:
                 criterios_busqueda = criterios_relajados
                 break
 
+    # 5) Si tras relajar filtros hay resultados: flujo normal
     if len(resultado) > 0:
         try:
             df_tmp = resultado.copy()
@@ -633,6 +359,7 @@ async def buscar_nlp_chat(payload: BuscarNLPChatRequest) -> Dict[str, Any]:
         resultado_limitado = resultado_limitado.where(pd.notnull(resultado_limitado), None)
         resultado_limitado = resultado_limitado.replace({np.nan: None})
 
+        # Ranking por inmuebles destacados/prioridad de proveedor
         try:
             props: List[UnifiedProperty] = []
             for _, row in resultado_limitado.iterrows():
@@ -649,16 +376,16 @@ async def buscar_nlp_chat(payload: BuscarNLPChatRequest) -> Dict[str, Any]:
                     source_id=source_id,
                     title=row_dict.get("titulo") or None,
                     description=row_dict.get("descripcion") or None,
-                    price=None,
+                    price=row_dict.get("precio"),
                     currency="COP",
-                    area_m2=None,
-                    bedrooms=None,
-                    bathrooms=None,
+                    area_m2=row_dict.get("area_total") or row_dict.get("area_construida"),
+                    bedrooms=row_dict.get("habitaciones"),
+                    bathrooms=row_dict.get("banos"),
                     country=None,
                     city=(row_dict.get("ciudad") or None),
                     zone=(row_dict.get("zona") or None),
                     address=(row_dict.get("direccion") or None),
-                    images=[],
+                    images=row_dict.get("imagenes") or [],
                     phones=[],
                     contact_name=None,
                     raw=row_dict,
@@ -672,8 +399,24 @@ async def buscar_nlp_chat(payload: BuscarNLPChatRequest) -> Dict[str, Any]:
                 resultado_limitado["_rank_priority"] = (
                     resultado_limitado["id"].astype(str).map(order_index)
                 )
-                resultado_limitado = resultado_limitado.sort_values("_rank_priority", na_position="last")
+                resultado_limitado = resultado_limitado.sort_values(
+                    "_rank_priority", na_position="last"
+                )
                 resultado_limitado = resultado_limitado.drop(columns=["_rank_priority"])
+        except Exception:
+            pass
+
+        # Calcular afinidad por inmueble
+        try:
+            def _apply_affinity(row):
+                row_dict = row.to_dict()
+                score = affinity_engine.compute_affinity(criterios_originales, row_dict)
+                level = affinity_engine.classify_level(score)
+                row["affinity_score"] = float(score)
+                row["affinity_level"] = level
+                return row
+
+            resultado_limitado = resultado_limitado.apply(_apply_affinity, axis=1)
         except Exception:
             pass
 
@@ -692,7 +435,9 @@ async def buscar_nlp_chat(payload: BuscarNLPChatRequest) -> Dict[str, Any]:
                         pass
                 return []
 
-            resultado_limitado["imagenes"] = resultado_limitado["imagenes"].apply(_parse_imagenes)
+            resultado_limitado["imagenes"] = resultado_limitado["imagenes"].apply(
+                _parse_imagenes
+            )
 
         estadisticas_resultado: Dict[str, Any] = {}
         if "precio" in resultado.columns:
@@ -715,20 +460,10 @@ async def buscar_nlp_chat(payload: BuscarNLPChatRequest) -> Dict[str, Any]:
                 f"mostrando {len(resultado_limitado)}."
             )
 
-        criterios_turno: Dict[str, Any] = {}
-        for k, v in criterios_acumulados.items():
-            if k not in criterios_previos or criterios_previos.get(k) != v:
-                criterios_turno[k] = v
-
-        conversaciones_activas[session_id] = {
-            "criterios": dict(criterios_acumulados),
-            "filtros_relajados": list(filtros_relajados),
-        }
-
         try:
             guardar_consulta_nlp(
                 texto_usuario=texto,
-                criterios_inferidos=criterios_acumulados,
+                criterios_inferidos=criterios,
                 predicciones_nlp=predicciones_nlp,
                 filtros_relajados=filtros_relajados,
                 total_encontrados=len(resultado),
@@ -739,10 +474,8 @@ async def buscar_nlp_chat(payload: BuscarNLPChatRequest) -> Dict[str, Any]:
 
         return {
             "mensaje": mensaje,
-            "session_id": session_id,
             "texto_original": texto,
-            "criterios_turno": criterios_turno,
-            "criterios_acumulados": criterios_acumulados,
+            "criterios_inferidos": criterios,
             "predicciones_nlp": predicciones_nlp,
             "filtros_relajados": filtros_relajados,
             "total_encontrados": len(resultado),
@@ -751,37 +484,109 @@ async def buscar_nlp_chat(payload: BuscarNLPChatRequest) -> Dict[str, Any]:
             "resultados": resultado_limitado.to_dict("records"),
         }
 
-    criterios_turno: Dict[str, Any] = {}
-    for k, v in criterios_acumulados.items():
-        if k not in criterios_previos or criterios_previos.get(k) != v:
-            criterios_turno[k] = v
-
-    conversaciones_activas[session_id] = {
-        "criterios": dict(criterios_acumulados),
-        "filtros_relajados": list(filtros_relajados),
-    }
-
+    # 6) Caso sin resultados ni siquiera relajando filtros: usar afinidad para sugerencias
     try:
-        guardar_consulta_nlp(
-            texto_usuario=texto,
-            criterios_inferidos=criterios_acumulados,
-            predicciones_nlp=predicciones_nlp,
-            filtros_relajados=filtros_relajados,
-            total_encontrados=0,
-            total_retornados=0,
-        )
-    except Exception:
-        pass
+        df_base = modelo.df.copy()
 
-    return {
-        "mensaje": "No se encontraron inmuebles que coincidan con la descripción proporcionada, incluso relajando filtros principales",
-        "session_id": session_id,
-        "texto_original": texto,
-        "criterios_turno": criterios_turno,
-        "criterios_acumulados": criterios_acumulados,
-        "predicciones_nlp": predicciones_nlp,
-        "filtros_relajados": filtros_relajados,
-        "total_encontrados": 0,
-        "total_retornados": 0,
-        "resultados": [],
-    }
+        tipo = criterios_busqueda.get("tipo")
+        ciudad = criterios_busqueda.get("ciudad")
+        tipo_negocio = criterios_busqueda.get("tipo_negocio")
+
+        if tipo and "tipo" in df_base.columns:
+            df_base = df_base[df_base["tipo"].astype(str) == str(tipo)]
+        if ciudad and "ciudad" in df_base.columns:
+            df_base = df_base[df_base["ciudad"].astype(str) == str(ciudad)]
+        if tipo_negocio and "tipo_negocio" in df_base.columns:
+            df_base = df_base[df_base["tipo_negocio"].astype(str) == str(tipo_negocio)]
+
+        if len(df_base) == 0:
+            df_base = modelo.df.copy()
+
+        df_base = df_base.where(pd.notnull(df_base), None)
+        df_base = df_base.replace({np.nan: None})
+
+        def _apply_affinity_suggest(row):
+            row_dict = row.to_dict()
+            score = affinity_engine.compute_affinity(criterios_originales, row_dict)
+            level = affinity_engine.classify_level(score)
+            row["affinity_score"] = float(score)
+            row["affinity_level"] = level
+            return row
+
+        df_base = df_base.apply(_apply_affinity_suggest, axis=1)
+        df_base = df_base.sort_values("affinity_score", ascending=False)
+
+        df_sugerencias = df_base[df_base["affinity_score"] > 0].head(50).copy()
+
+        if "imagenes" in df_sugerencias.columns:
+            def _parse_imagenes_sug(value: Any) -> List[str]:
+                if value is None:
+                    return []
+                if isinstance(value, list):
+                    return value
+                if isinstance(value, str):
+                    try:
+                        parsed = json.loads(value)
+                        if isinstance(parsed, list):
+                            return parsed
+                    except Exception:
+                        pass
+                return []
+
+            df_sugerencias["imagenes"] = df_sugerencias["imagenes"].apply(
+                _parse_imagenes_sug
+            )
+
+        total_sugerencias = len(df_sugerencias)
+
+        try:
+            guardar_consulta_nlp(
+                texto_usuario=texto,
+                criterios_inferidos=criterios,
+                predicciones_nlp=predicciones_nlp,
+                filtros_relajados=filtros_relajados,
+                total_encontrados=0,
+                total_retornados=total_sugerencias,
+            )
+        except Exception:
+            pass
+
+        mensaje = (
+            "No se encontraron inmuebles que cumplieran los criterios exactos ni relajando filtros "
+            "principales, pero se encontraron sugerencias ordenadas por afinidad."
+        )
+
+        return {
+            "mensaje": mensaje,
+            "texto_original": texto,
+            "criterios_inferidos": criterios,
+            "predicciones_nlp": predicciones_nlp,
+            "filtros_relajados": filtros_relajados,
+            "total_encontrados": 0,
+            "total_retornados": total_sugerencias,
+            "estadisticas": {},
+            "resultados": df_sugerencias.to_dict("records"),
+        }
+    except Exception:
+        try:
+            guardar_consulta_nlp(
+                texto_usuario=texto,
+                criterios_inferidos=criterios,
+                predicciones_nlp=predicciones_nlp,
+                filtros_relajados=filtros_relajados,
+                total_encontrados=0,
+                total_retornados=0,
+            )
+        except Exception:
+            pass
+
+        return {
+            "mensaje": "No se encontraron inmuebles que coincidan con la descripción proporcionada, incluso relajando filtros principales",
+            "texto_original": texto,
+            "criterios_inferidos": criterios,
+            "predicciones_nlp": predicciones_nlp,
+            "filtros_relajados": filtros_relajados,
+            "total_encontrados": 0,
+            "total_retornados": 0,
+            "resultados": [],
+        }
