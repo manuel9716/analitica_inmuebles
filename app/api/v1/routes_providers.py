@@ -8,6 +8,7 @@ from integrations.providers import (
     get_provider,
     list_providers,
 )
+from integrations.providers.highlight import rank_properties
 from app.models.providers import (
     ProvidersListResponse,
     PropertiesListResponse,
@@ -93,8 +94,12 @@ async def list_properties(
         return True
 
     filtered = [p for p in props if _match(p)]
+
+    # Aplicar ranking de inmuebles destacados + prioridad de proveedor
+    ranked = rank_properties(filtered)
+
     # Limitar resultados finales por seguridad
-    limited = filtered[:limit]
+    limited = ranked[:limit]
 
     return PropertiesListResponse(
         total=len(filtered),

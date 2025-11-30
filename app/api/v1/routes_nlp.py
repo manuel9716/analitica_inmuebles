@@ -11,6 +11,8 @@ from pydantic import BaseModel
 
 from app.api.v1 import routes_inmuebles
 from db_nlp_logs import guardar_consulta_nlp
+from integrations.providers.highlight import rank_properties
+from integrations.providers.models import UnifiedProperty
 from nlp_modelo_inmuebles import cargar_modelo_nlp, predecir_desde_texto
 
 
@@ -341,10 +343,54 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
         except Exception:
             resultado_ordenado = resultado
 
-        resultado_limitado = resultado_ordenado.head(100)
+        resultado_limitado = resultado_ordenado.head(100).copy()
 
         resultado_limitado = resultado_limitado.where(pd.notnull(resultado_limitado), None)
         resultado_limitado = resultado_limitado.replace({np.nan: None})
+
+        try:
+            props: List[UnifiedProperty] = []
+            for _, row in resultado_limitado.iterrows():
+                row_dict = row.to_dict()
+                source_id = str(row_dict.get("id", "") or "")
+                if not source_id:
+                    continue
+
+                unified_id = f"wasi:{source_id}"
+
+                prop = UnifiedProperty(
+                    id=unified_id,
+                    source="wasi",
+                    source_id=source_id,
+                    title=row_dict.get("titulo") or None,
+                    description=row_dict.get("descripcion") or None,
+                    price=None,
+                    currency="COP",
+                    area_m2=None,
+                    bedrooms=None,
+                    bathrooms=None,
+                    country=None,
+                    city=(row_dict.get("ciudad") or None),
+                    zone=(row_dict.get("zona") or None),
+                    address=(row_dict.get("direccion") or None),
+                    images=[],
+                    phones=[],
+                    contact_name=None,
+                    raw=row_dict,
+                )
+                props.append(prop)
+
+            ranked = rank_properties(props)
+            order_index = {p.source_id: idx for idx, p in enumerate(ranked)}
+
+            if "id" in resultado_limitado.columns:
+                resultado_limitado["_rank_priority"] = (
+                    resultado_limitado["id"].astype(str).map(order_index)
+                )
+                resultado_limitado = resultado_limitado.sort_values("_rank_priority", na_position="last")
+                resultado_limitado = resultado_limitado.drop(columns=["_rank_priority"])
+        except Exception:
+            pass
 
         if "imagenes" in resultado_limitado.columns:
             def _parse_imagenes(value: Any) -> List[str]:
@@ -583,9 +629,53 @@ async def buscar_nlp_chat(payload: BuscarNLPChatRequest) -> Dict[str, Any]:
         except Exception:
             resultado_ordenado = resultado
 
-        resultado_limitado = resultado_ordenado.head(100)
+        resultado_limitado = resultado_ordenado.head(100).copy()
         resultado_limitado = resultado_limitado.where(pd.notnull(resultado_limitado), None)
         resultado_limitado = resultado_limitado.replace({np.nan: None})
+
+        try:
+            props: List[UnifiedProperty] = []
+            for _, row in resultado_limitado.iterrows():
+                row_dict = row.to_dict()
+                source_id = str(row_dict.get("id", "") or "")
+                if not source_id:
+                    continue
+
+                unified_id = f"wasi:{source_id}"
+
+                prop = UnifiedProperty(
+                    id=unified_id,
+                    source="wasi",
+                    source_id=source_id,
+                    title=row_dict.get("titulo") or None,
+                    description=row_dict.get("descripcion") or None,
+                    price=None,
+                    currency="COP",
+                    area_m2=None,
+                    bedrooms=None,
+                    bathrooms=None,
+                    country=None,
+                    city=(row_dict.get("ciudad") or None),
+                    zone=(row_dict.get("zona") or None),
+                    address=(row_dict.get("direccion") or None),
+                    images=[],
+                    phones=[],
+                    contact_name=None,
+                    raw=row_dict,
+                )
+                props.append(prop)
+
+            ranked = rank_properties(props)
+            order_index = {p.source_id: idx for idx, p in enumerate(ranked)}
+
+            if "id" in resultado_limitado.columns:
+                resultado_limitado["_rank_priority"] = (
+                    resultado_limitado["id"].astype(str).map(order_index)
+                )
+                resultado_limitado = resultado_limitado.sort_values("_rank_priority", na_position="last")
+                resultado_limitado = resultado_limitado.drop(columns=["_rank_priority"])
+        except Exception:
+            pass
 
         if "imagenes" in resultado_limitado.columns:
             def _parse_imagenes(value: Any) -> List[str]:

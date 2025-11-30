@@ -101,9 +101,26 @@ Por defecto expone la documentación interactiva en:
   - `GET /v1/providers` → lista de proveedores registrados (por ahora: `"wasi"`).
   - `GET /v1/providers/properties` → propiedades normalizadas (`UnifiedProperty`) para un proveedor.
 
+- **Administración de prioridades** – prefijo `/v1/providers`
+  - `GET /v1/providers/priority` → obtiene el orden actual de prioridad de proveedores.
+  - `PUT /v1/providers/priority` → actualiza el orden de prioridad de proveedores (persistido en `data/config/providers_priority.json`).
+  - `GET /v1/providers/highlights` → lista de inmuebles destacados configurados (por `source` + `source_id`).
+  - `PUT /v1/providers/highlights` → crea/actualiza inmuebles destacados con un peso (`weight`) entero.
+
+  El sistema de ranking aplica, en este orden:
+
+  1. Peso de destacado (`weight`) descendente.
+  2. Prioridad global del proveedor.
+  3. Orden estable por `source_id`.
+
 - **Buscador inteligente (NLP)** – prefijo `/v1/nlp`
   - `POST /v1/nlp/buscar` → búsqueda a partir de texto libre, combinando reglas + modelo NLP.
   - `POST /v1/nlp/chat` → versión conversacional con `session_id` y acumulación de criterios.
+
+  Los resultados de estos endpoints también pasan por el **mismo sistema de prioridades y destacados**, de modo que:
+
+  - Los inmuebles destacados definidos en `/v1/providers/highlights` aparecen primero si cumplen los criterios.
+  - Se respeta el orden de prioridad de proveedores configurado en `/v1/providers/priority`.
 
 ### Ejemplos rápidos de uso (Swagger)
 
