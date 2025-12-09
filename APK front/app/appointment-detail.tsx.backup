@@ -1,0 +1,911 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Image,
+  Alert,
+  Linking,
+  Platform,
+  Dimensions,
+} from 'react-native';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { getColors, spacing, typography, borderRadius, shadows } from '@/constants/theme';
+import { useAuth } from '@/contexts/AuthContext';
+import { useTheme } from '@/contexts/ThemeContext';
+import { appointmentsAppService } from '@/services/appointmentsAppService';
+import { Appointment } from '@/types';
+import AppointmentMap from '@/components/AppointmentMap';
+import {
+  Calendar,
+  Clock,
+  MapPin,
+  Phone,
+  Mail,
+  X,
+  Navigation,
+  DollarSign,
+  User,
+  CheckCircle,
+  Home,
+  Bed,
+  Bath,
+  Car,
+  Layers,
+  Building2,
+  Maximize2,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react-native';
+
+const { width } = Dimensions.get('window');
+
+export default function AppointmentDetailScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const { user } = useAuth();
+  const router = useRouter();
+  const { isDark } = useTheme();
+  const colors = getColors(isDark);
+  const [appointment, setAppointment] = useState<Appointment | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const scrollViewRef = React.useRef<ScrollView>(null);
+
+  useEffect(() => {
+    if (id && user) {
+      loadAppointment();
+    }
+  }, [id, user]);
+
+  const loadAppointment = async () => {
+    try {
+      setLoading(true);
+      const data = await appointmentsAppService.getAppointmentById(id);
+      setAppointment(data);
+    } catch (error) {
+      console.error('[AppointmentDetail] Error loading appointment:', error);
+      Alert.alert('Error', 'No se pudo cargar la cita');
+      router.back();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePreviousImage = () => {
+    if (!appointment || !appointment.inmueble_imagenes) return;
+    if (currentImageIndex > 0) {
+      const newIndex = currentImageIndex - 1;
+      setCurrentImageIndex(newIndex);
+      scrollViewRef.current?.scrollTo({ x: width * newIndex, animated: true });
+    }
+  };
+
+  const handleNextImage = () => {
+    if (!appointment || !appointment.inmueble_imagenes) return;
+    if (currentImageIndex < appointment.inmueble_imagenes.length - 1) {
+      const newIndex = currentImageIndex + 1;
+      setCurrentImageIndex(newIndex);
+      scrollViewRef.current?.scrollTo({ x: width * newIndex, animated: true });
+    }
+  };
+
+  const handleCall = () => {
+    if (appointment?.vendedor_celular) {
+      Linking.openURL(`tel:${appointment.vendedor_celular}`);
+    }
+  };
+
+  const handleEmail = () => {
+    if (appointment?.vendedor_email) {
+      Linking.openURL(`mailto:${appointment.vendedor_email}`);
+    }
+  };
+
+  const openInGoogleMaps = () => {
+    if (!appointment?.inmueble_coordenadas) {
+      Alert.alert('Error', 'No hay coordenadas disponibles');
+      return;
+    }
+
+    const { lat, lng } = appointment.inmueble_coordenadas;
+    const url = Platform.select({
+      ios: `maps://app?daddr=${lat},${lng}`,
+      android: `google.navigation:q=${lat},${lng}`,
+      web: `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`,
+    });
+
+    if (url) {
+      Linking.openURL(url).catch(() => {
+        const fallbackUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+        Linking.openURL(fallbackUrl);
+      });
+    }
+  };
+
+  const openInWaze = () => {
+    if (!appointment?.inmueble_coordenadas) {
+      Alert.alert('Error', 'No hay coordenadas disponibles');
+      return;
+    }
+
+    const { lat, lng } = appointment.inmueble_coordenadas;
+    const url = `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`;
+
+    Linking.openURL(url).catch(() => {
+      Alert.alert('Error', 'No se pudo abrir Waze. Asegúrate de tener la aplicación instalada.');
+    });
+  };
+
+  const handleConfirmAppointment = async () => {
+    if (!appointment) return;
+
+    try {
+      await appointmentsAppService.confirmAppointmentByClient(appointment.id);
+      setAppointment({ ...appointment, confirmada_cliente: true });
+      Alert.alert('Confirmado', 'Has confirmado tu asistencia a la cita');
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo confirmar la cita');
+    }
+  };
+
+  const handleCancelAppointment = () => {
+    if (!appointment) return;
+
+    Alert.alert(
+      'Cancelar cita',
+      '¿Estás seguro que deseas cancelar esta cita?',
+      [
+        { text: 'No', style: 'cancel' },
+        {
+          text: 'Sí, cancelar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await appointmentsAppService.cancelAppointmentByClient(
+                appointment.id,
+                'Cancelada por el usuario'
+              );
+              Alert.alert('Éxito', 'Cita cancelada correctamente', [
+                { text: 'OK', onPress: () => router.back() },
+              ]);
+            } catch (error) {
+              Alert.alert('Error', 'No se pudo cancelar la cita');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'pendiente':
+        return colors.accent;
+      case 'confirmada':
+        return colors.success;
+      case 'en_camino':
+        return '#2196F3';
+      case 'en_curso':
+        return '#2196F3';
+      case 'completada':
+        return colors.textSecondary;
+      case 'cancelada_cliente':
+      case 'cancelada_vendedor':
+        return colors.error;
+      case 'no_asistio_cliente':
+      case 'no_asistio_vendedor':
+        return colors.error;
+      case 'reagendada':
+        return '#9C27B0';
+      default:
+        return colors.textSecondary;
+    }
+  };
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'pendiente':
+        return 'Pendiente';
+      case 'confirmada':
+        return 'Confirmada';
+      case 'en_camino':
+        return 'En Camino';
+      case 'en_curso':
+        return 'En Curso';
+      case 'completada':
+        return 'Completada';
+      case 'cancelada_cliente':
+        return 'Cancelada';
+      case 'cancelada_vendedor':
+        return 'Cancelada por Vendedor';
+      case 'no_asistio_cliente':
+        return 'No Asistió';
+      case 'no_asistio_vendedor':
+        return 'Vendedor No Asistió';
+      case 'reagendada':
+        return 'Reagendada';
+      default:
+        return status;
+    }
+  };
+
+  const formatPrice = (price?: number) => {
+    if (!price) return 'Precio no disponible';
+    return new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      minimumFractionDigits: 0,
+    }).format(price);
+  };
+
+  const formatDate = (dateString: string) => {
+    try {
+      if (!dateString) return 'Fecha no disponible';
+
+      const dateOnly = dateString.split('T')[0];
+      const parts = dateOnly.split('-');
+      if (parts.length !== 3) return dateString;
+
+      const [year, month, day] = parts.map(Number);
+      if (isNaN(year) || isNaN(month) || isNaN(day)) return dateString;
+
+      const date = new Date(year, month - 1, day);
+      if (isNaN(date.getTime())) return dateString;
+
+      const months = [
+        'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+        'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+      ];
+
+      return `${date.getDate()} de ${months[date.getMonth()]}, ${date.getFullYear()}`;
+    } catch (error) {
+      return dateString || 'Fecha no disponible';
+    }
+  };
+
+  if (loading || !appointment) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
+        <Text style={[styles.loadingText, { color: colors.textPrimary }]}>Cargando...</Text>
+      </View>
+    );
+  }
+
+  const propertyImages = appointment.inmueble_imagenes && appointment.inmueble_imagenes.length > 0
+    ? appointment.inmueble_imagenes
+    : appointment.inmueble_imagen_url
+    ? [appointment.inmueble_imagen_url]
+    : [];
+
+  return (
+    <>
+      <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.imageContainer}>
+          <ScrollView
+            ref={scrollViewRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onScroll={(event) => {
+              const index = Math.round(event.nativeEvent.contentOffset.x / width);
+              setCurrentImageIndex(index);
+            }}
+            scrollEventThrottle={16}
+          >
+            {propertyImages.length > 0 ? (
+              propertyImages.map((image, index) => (
+                <Image
+                  key={index}
+                  source={{ uri: image }}
+                  style={styles.propertyImage}
+                  resizeMode="cover"
+                />
+              ))
+            ) : (
+              <View style={[styles.propertyImage, styles.noImageContainer, { backgroundColor: colors.surface }]}>
+                <Home size={64} color={colors.textSecondary} />
+                <Text style={[styles.noImageText, { color: colors.textSecondary }]}>Sin imágenes</Text>
+              </View>
+            )}
+          </ScrollView>
+
+          {propertyImages.length > 1 && (
+            <>
+              <TouchableOpacity
+                style={[styles.navButtonImage, styles.navButtonLeft]}
+                onPress={handlePreviousImage}
+                disabled={currentImageIndex === 0}
+              >
+                <ChevronLeft size={28} color="#FFFFFF" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.navButtonImage, styles.navButtonRight]}
+                onPress={handleNextImage}
+                disabled={currentImageIndex === propertyImages.length - 1}
+              >
+                <ChevronRight size={28} color="#FFFFFF" />
+              </TouchableOpacity>
+
+              <View style={styles.imageIndicator}>
+                <Text style={styles.imageIndicatorText}>
+                  {currentImageIndex + 1} / {propertyImages.length}
+                </Text>
+              </View>
+            </>
+          )}
+
+          <View
+            style={[
+              styles.statusBadgeOverlay,
+              { backgroundColor: getStatusColor(appointment.estado) + 'DD' },
+            ]}
+          >
+            <Text style={[styles.statusTextOverlay, { color: '#FFFFFF' }]}>
+              {getStatusText(appointment.estado)}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.content}>
+          <Text style={[styles.propertyTitle, { color: colors.textPrimary }]}>
+            {appointment.inmueble_titulo}
+          </Text>
+
+          {appointment.inmueble_precio && (
+            <View style={[styles.priceCard, { backgroundColor: colors.surface }]}>
+              <DollarSign size={24} color={colors.primary} />
+              <Text style={[styles.priceText, { color: colors.primary }]}>
+                {formatPrice(appointment.inmueble_precio)}
+              </Text>
+            </View>
+          )}
+
+          <View style={[styles.section, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              Características del Inmueble
+            </Text>
+
+            <View style={styles.featuresGrid}>
+              {appointment.inmueble_habitaciones !== undefined && (
+                <View style={styles.featureItem}>
+                  <Bed size={24} color={colors.textSecondary} />
+                  <Text style={[styles.featureValue, { color: colors.textPrimary }]}>
+                    {appointment.inmueble_habitaciones}
+                  </Text>
+                  <Text style={[styles.featureLabel, { color: colors.textSecondary }]}>
+                    {appointment.inmueble_habitaciones === 1 ? 'Habitación' : 'Habitaciones'}
+                  </Text>
+                </View>
+              )}
+
+              {appointment.inmueble_banos !== undefined && (
+                <View style={styles.featureItem}>
+                  <Bath size={24} color={colors.textSecondary} />
+                  <Text style={[styles.featureValue, { color: colors.textPrimary }]}>
+                    {appointment.inmueble_banos}
+                  </Text>
+                  <Text style={[styles.featureLabel, { color: colors.textSecondary }]}>
+                    {appointment.inmueble_banos === 1 ? 'Baño' : 'Baños'}
+                  </Text>
+                </View>
+              )}
+
+              {appointment.inmueble_area !== undefined && (
+                <View style={styles.featureItem}>
+                  <Maximize2 size={24} color={colors.textSecondary} />
+                  <Text style={[styles.featureValue, { color: colors.textPrimary }]}>
+                    {appointment.inmueble_area}
+                  </Text>
+                  <Text style={[styles.featureLabel, { color: colors.textSecondary }]}>m²</Text>
+                </View>
+              )}
+
+              {appointment.inmueble_parqueaderos !== undefined && (
+                <View style={styles.featureItem}>
+                  <Car size={24} color={colors.textSecondary} />
+                  <Text style={[styles.featureValue, { color: colors.textPrimary }]}>
+                    {appointment.inmueble_parqueaderos}
+                  </Text>
+                  <Text style={[styles.featureLabel, { color: colors.textSecondary }]}>
+                    {appointment.inmueble_parqueaderos === 1 ? 'Parqueadero' : 'Parqueaderos'}
+                  </Text>
+                </View>
+              )}
+
+              {appointment.inmueble_estrato !== undefined && (
+                <View style={styles.featureItem}>
+                  <Layers size={24} color={colors.textSecondary} />
+                  <Text style={[styles.featureValue, { color: colors.textPrimary }]}>
+                    {appointment.inmueble_estrato}
+                  </Text>
+                  <Text style={[styles.featureLabel, { color: colors.textSecondary }]}>Estrato</Text>
+                </View>
+              )}
+
+              <View style={styles.featureItem}>
+                <Building2 size={24} color={colors.textSecondary} />
+                <Text style={[styles.featureValue, { color: colors.textPrimary }]}>
+                  {appointment.inmueble_tipo}
+                </Text>
+                <Text style={[styles.featureLabel, { color: colors.textSecondary }]}>Tipo</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={[styles.section, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              Ubicación
+            </Text>
+
+            <View style={styles.infoRow}>
+              <MapPin size={20} color={colors.textSecondary} />
+              <View style={styles.infoContent}>
+                <Text style={[styles.infoValue, { color: colors.textPrimary }]}>
+                  {appointment.inmueble_direccion}
+                </Text>
+                <Text style={[styles.infoLabel, { color: colors.textSecondary, marginTop: spacing.xs }]}>
+                  {appointment.inmueble_ciudad}, {appointment.inmueble_departamento}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {appointment.inmueble_descripcion && (
+            <View style={[styles.section, { backgroundColor: colors.surface }]}>
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+                Descripción
+              </Text>
+              <Text style={[styles.descriptionText, { color: colors.textPrimary }]}>
+                {appointment.inmueble_descripcion}
+              </Text>
+            </View>
+          )}
+
+          {appointment.inmueble_caracteristicas && appointment.inmueble_caracteristicas.length > 0 && (
+            <View style={[styles.section, { backgroundColor: colors.surface }]}>
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+                Características Adicionales
+              </Text>
+              <View style={styles.characteristicsList}>
+                {appointment.inmueble_caracteristicas.map((feature, index) => (
+                  <View key={index} style={styles.characteristicItem}>
+                    <View style={[styles.characteristicBullet, { backgroundColor: colors.primary }]} />
+                    <Text style={[styles.characteristicText, { color: colors.textPrimary }]}>
+                      {feature}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          <View style={[styles.section, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              Información de la Cita
+            </Text>
+
+            <View style={styles.infoRow}>
+              <Calendar size={20} color={colors.textSecondary} />
+              <View style={styles.infoContent}>
+                <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Fecha</Text>
+                <Text style={[styles.infoValue, { color: colors.textPrimary }]}>
+                  {formatDate(appointment.fecha_cita)}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.infoRow}>
+              <Clock size={20} color={colors.textSecondary} />
+              <View style={styles.infoContent}>
+                <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Hora</Text>
+                <Text style={[styles.infoValue, { color: colors.textPrimary }]}>
+                  {appointment.hora_inicio} ({appointment.duracion_minutos} min)
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {appointment.inmueble_coordenadas && (
+            <View style={[styles.section, { backgroundColor: colors.surface }]}>
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+                Mapa y Navegación
+              </Text>
+
+              <View style={styles.mapContainer}>
+                <AppointmentMap
+                  latitude={appointment.inmueble_coordenadas.lat}
+                  longitude={appointment.inmueble_coordenadas.lng}
+                  title={appointment.inmueble_titulo}
+                  description={appointment.inmueble_direccion}
+                />
+              </View>
+
+              <View style={styles.navigationButtons}>
+                <TouchableOpacity
+                  style={[styles.navButton, { backgroundColor: colors.primary }]}
+                  onPress={openInGoogleMaps}
+                >
+                  <Navigation size={20} color="#FFFFFF" />
+                  <Text style={styles.navButtonText}>Google Maps</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.navButton, { backgroundColor: '#00C8F8' }]}
+                  onPress={openInWaze}
+                >
+                  <Navigation size={20} color="#FFFFFF" />
+                  <Text style={styles.navButtonText}>Waze</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          <View style={[styles.section, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              Información del Vendedor
+            </Text>
+
+            <View style={styles.infoRow}>
+              <User size={20} color={colors.textSecondary} />
+              <View style={styles.infoContent}>
+                <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Nombre</Text>
+                <Text style={[styles.infoValue, { color: colors.textPrimary }]}>
+                  {appointment.vendedor_nombre || 'Por Asignar'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.contactButtons}>
+              <TouchableOpacity
+                style={[styles.contactButton, { backgroundColor: colors.primary }]}
+                onPress={handleCall}
+              >
+                <Phone size={20} color="#FFFFFF" />
+                <Text style={styles.contactButtonText}>Llamar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.contactButton, { backgroundColor: colors.primary }]}
+                onPress={handleEmail}
+              >
+                <Mail size={20} color="#FFFFFF" />
+                <Text style={styles.contactButtonText}>Correo</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={[styles.contactDetails, { backgroundColor: colors.background }]}>
+              <View style={styles.contactDetailRow}>
+                <Phone size={16} color={colors.textSecondary} />
+                <Text style={[styles.contactDetailText, { color: colors.textPrimary }]}>
+                  {appointment.vendedor_celular}
+                </Text>
+              </View>
+              <View style={styles.contactDetailRow}>
+                <Mail size={16} color={colors.textSecondary} />
+                <Text style={[styles.contactDetailText, { color: colors.textPrimary }]}>
+                  {appointment.vendedor_email}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {appointment.notas_cliente && (
+            <View style={[styles.section, { backgroundColor: colors.surface }]}>
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+                Notas de la Cita
+              </Text>
+              <Text style={[styles.notesText, { color: colors.textPrimary }]}>
+                {appointment.notas_cliente}
+              </Text>
+            </View>
+          )}
+
+          {appointment.confirmada_cliente && (
+            <View style={[styles.confirmedBadge, { backgroundColor: colors.success + '20' }]}>
+              <CheckCircle size={20} color={colors.success} />
+              <Text style={[styles.confirmedText, { color: colors.success }]}>
+                Has confirmado tu asistencia
+              </Text>
+            </View>
+          )}
+
+          {appointment.estado === 'pendiente' && (
+            <View style={styles.actionButtons}>
+              {!appointment.confirmada_cliente && (
+                <TouchableOpacity
+                  style={[styles.primaryButton, { backgroundColor: colors.success }]}
+                  onPress={handleConfirmAppointment}
+                >
+                  <CheckCircle size={20} color="#FFFFFF" />
+                  <Text style={styles.primaryButtonText}>Confirmar Asistencia</Text>
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity
+                style={[styles.dangerButton, { borderColor: colors.error }]}
+                onPress={handleCancelAppointment}
+              >
+                <X size={20} color={colors.error} />
+                <Text style={[styles.dangerButtonText, { color: colors.error }]}>
+                  Cancelar Cita
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </ScrollView>
+    </>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: typography.fontSize.lg,
+  },
+  imageContainer: {
+    width: '100%',
+    height: 300,
+    position: 'relative',
+  },
+  propertyImage: {
+    width: width,
+    height: 300,
+  },
+  noImageContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  noImageText: {
+    fontSize: typography.fontSize.base,
+  },
+  navButtonImage: {
+    position: 'absolute',
+    top: '50%',
+    transform: [{ translateY: -20 }],
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: borderRadius.full,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  navButtonLeft: {
+    left: spacing.md,
+  },
+  navButtonRight: {
+    right: spacing.md,
+  },
+  imageIndicator: {
+    position: 'absolute',
+    bottom: spacing.md,
+    right: spacing.md,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.full,
+  },
+  imageIndicatorText: {
+    color: '#FFFFFF',
+    fontSize: typography.fontSize.sm,
+    fontWeight: '600',
+  },
+  statusBadgeOverlay: {
+    position: 'absolute',
+    top: spacing.md,
+    left: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.full,
+  },
+  statusTextOverlay: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: '600',
+  },
+  content: {
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  propertyTitle: {
+    fontSize: typography.fontSize['2xl'],
+    fontWeight: '700',
+    lineHeight: 32,
+  },
+  priceCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.lg,
+    borderRadius: borderRadius.lg,
+    gap: spacing.md,
+    ...shadows.md,
+  },
+  priceText: {
+    fontSize: typography.fontSize['2xl'],
+    fontWeight: '700',
+  },
+  section: {
+    padding: spacing.lg,
+    borderRadius: borderRadius.lg,
+    gap: spacing.md,
+    ...shadows.sm,
+  },
+  sectionTitle: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: '700',
+    marginBottom: spacing.sm,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+  },
+  infoContent: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  infoLabel: {
+    fontSize: typography.fontSize.sm,
+  },
+  infoValue: {
+    fontSize: typography.fontSize.base,
+    fontWeight: '500',
+  },
+  mapContainer: {
+    height: 200,
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
+    marginTop: spacing.sm,
+  },
+  navigationButtons: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  navButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    gap: spacing.sm,
+  },
+  navButtonText: {
+    color: '#FFFFFF',
+    fontSize: typography.fontSize.base,
+    fontWeight: '600',
+  },
+  contactButtons: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  contactButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    gap: spacing.sm,
+  },
+  contactButtonText: {
+    color: '#FFFFFF',
+    fontSize: typography.fontSize.base,
+    fontWeight: '600',
+  },
+  contactDetails: {
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  contactDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  contactDetailText: {
+    fontSize: typography.fontSize.sm,
+    flex: 1,
+  },
+  notesText: {
+    fontSize: typography.fontSize.base,
+    lineHeight: 24,
+  },
+  confirmedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.md,
+    borderRadius: borderRadius.lg,
+    gap: spacing.sm,
+  },
+  confirmedText: {
+    fontSize: typography.fontSize.base,
+    fontWeight: '600',
+  },
+  actionButtons: {
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  primaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    gap: spacing.sm,
+    ...shadows.sm,
+  },
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: typography.fontSize.base,
+    fontWeight: '600',
+  },
+  dangerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    gap: spacing.sm,
+    borderWidth: 1,
+  },
+  dangerButtonText: {
+    fontSize: typography.fontSize.base,
+    fontWeight: '600',
+  },
+  featuresGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+  },
+  featureItem: {
+    flex: 1,
+    minWidth: 100,
+    alignItems: 'center',
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  featureValue: {
+    fontSize: typography.fontSize.xl,
+    fontWeight: '700',
+  },
+  featureLabel: {
+    fontSize: typography.fontSize.sm,
+    textAlign: 'center',
+  },
+  descriptionText: {
+    fontSize: typography.fontSize.base,
+    lineHeight: 24,
+  },
+  characteristicsList: {
+    gap: spacing.sm,
+  },
+  characteristicItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  characteristicBullet: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  characteristicText: {
+    flex: 1,
+    fontSize: typography.fontSize.base,
+  },
+});
