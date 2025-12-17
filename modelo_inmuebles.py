@@ -346,6 +346,29 @@ class ModeloInmuebles:
         self.caracteristicas_categoricas = modelo_data['caracteristicas_categoricas']
         self.categorias_precio = modelo_data.get('categorias_precio')
         print(f"✓ Modelo cargado desde: {ruta}")
+
+        # Si ya hay un DataFrame cargado y no existe la columna 'cluster',
+        # la reconstruimos utilizando el modelo de clustering previamente
+        # entrenado. Esto es importante para que funciones como
+        # buscar_similares funcionen correctamente incluso cuando sólo se
+        # carga el modelo desde disco.
+        if self.df is not None and self.modelo_clustering is not None:
+            if 'cluster' not in self.df.columns:
+                print("🔁 Reconstruyendo columna 'cluster' para inmuebles cargados...")
+
+                # Volvemos a armar la matriz de características con la misma
+                # lógica usada en entrenar_clustering.
+                caracteristicas_encoded = [col + '_encoded' for col in self.caracteristicas_categoricas]
+                X_cols = self.caracteristicas_numericas + caracteristicas_encoded
+                X = self.df[X_cols].copy()
+
+                # Asegurar que no haya NaN ni infinitos antes de escalar
+                X = X.replace([np.inf, -np.inf], np.nan)
+                X = X.fillna(X.mean(numeric_only=True)).fillna(0)
+
+                X_scaled = self.scaler.transform(X)
+                self.df['cluster'] = self.modelo_clustering.predict(X_scaled)
+                print("✓ Columna 'cluster' reconstruida correctamente")
     
     def generar_reporte(self, resultado: pd.DataFrame, nombre_archivo: str = 'reporte_inmuebles.csv'):
         """
