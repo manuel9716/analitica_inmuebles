@@ -29,7 +29,6 @@ wheels/
 # Dataset y modelos generados
 dataset_inmuebles.csv
 inmuebles_wasi_real.csv
-*.pkl
 reporte_*.csv
 reporte.csv
 casas_familiares.csv
