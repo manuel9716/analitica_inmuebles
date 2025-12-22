@@ -2,6 +2,20 @@
 
 Sistema inteligente de análisis y categorización de inmuebles utilizando Machine Learning. Permite analizar datasets de propiedades, clasificar automáticamente por características, realizar búsquedas avanzadas y generar recomendaciones basadas en similitud.
 
+## 📚 Documentación completa del proyecto
+
+Además de este README, la documentación ampliada del proyecto (plataforma Busco Fácil, panel admin, Edge Functions, épicas de búsqueda/selección/agenda/voz, etc.) se encuentra organizada en la carpeta `docs/`:
+
+- Documentación general de la plataforma: `docs/DOC_DUMMY.MD`
+- Panel de administración y sistema de citas: `docs/DOC_ADMIN_PANEL.md`
+- Épica de búsqueda, prioridad, selección y agenda: `docs/DOC_EPICA_PRIORIDAD_BUSQUEDA_SELECCION_AGENDA_VOZ.md`
+
+Para detalles adicionales de arquitectura, Swagger y WASI, revisa también:
+
+- `docs/ESTRUCTURA_PROYECTO.md`
+- `docs/GUIA_SWAGGER.md`
+- `docs/INTEGRACION_WASI.md`
+
 ## Tabla de Contenidos
 
 - [Características Principales](#-características-principales)
