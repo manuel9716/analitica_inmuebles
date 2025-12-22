@@ -25,5 +25,34 @@
     },
     "created_at": 1764541457.187496,
     "updated_at": 1764541457.187496
+  },
+  {
+    "appointment_id": "appt_99fdd508b2ac",
+    "property_ids": [
+      "wasi:9654730",
+      "wasi:9679217"
+    ],
+    "owner_id": "user_demo",
+    "selection_id": null,
+    "channel": "web",
+    "requester": {
+      "name": "Manuel",
+      "email": "manu@example.com",
+      "phone": "+57 300 000 1111",
+      "preferred_contact": "whatsapp"
+    },
+    "time_window": {
+      "from": "2025-11-23T09:00:00",
+      "to": "2025-11-23T18:00:00"
+    },
+    "notes": "Prueba cita desde IA con selección de múltiples inmuebles",
+    "status": "confirmed",
+    "contact_phone_used": "+57 300 000 0000",
+    "metadata": {
+      "origen": "ia-microservice",
+      "context": "caso_prueba"
+    },
+    "created_at": 1765930886.684245,
+    "updated_at": 1765931516.443298
   }
 ]
