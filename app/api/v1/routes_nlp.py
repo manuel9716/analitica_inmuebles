@@ -7,13 +7,15 @@ import json
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.v1 import routes_inmuebles
+from app.api.v1.routes_appointments import RequesterInfo, TimeWindow
 from db_nlp_logs import guardar_consulta_nlp
 from integrations.affinity.engine import AffinityEngine
 from integrations.providers.highlight import rank_properties
 from integrations.providers.models import UnifiedProperty
+from integrations.appointments.store import appointment_store
 from nlp_modelo_inmuebles import cargar_modelo_nlp, predecir_desde_texto
 
 
@@ -27,6 +29,11 @@ affinity_engine = AffinityEngine()
 
 class BuscarNLPRequest(BaseModel):
     texto: str
+    action: Optional[str] = None
+    property_id: Optional[str] = None
+    user: Optional[RequesterInfo] = None
+    time_window: Optional[TimeWindow] = None
+    notes: Optional[str] = None
 
 
 class BuscarNLPChatRequest(BaseModel):
@@ -210,6 +217,62 @@ def _parsear_texto_a_criterios(texto: str) -> Dict[str, Any]:
     return criterios
 
 
+def _maybe_schedule_appointment(
+    payload: BuscarNLPRequest,
+    criterios: Dict[str, Any],
+    base_response: Dict[str, Any],
+) -> Dict[str, Any]:
+    if payload.action != "schedule":
+        return base_response
+
+    if not payload.property_id:
+        raise HTTPException(status_code=400, detail="Para agendar es obligatorio enviar property_id")
+
+    if not payload.user or (not payload.user.phone and not payload.user.email):
+        raise HTTPException(status_code=400, detail="Para agendar debe proporcionar al menos teléfono o email en user")
+
+    time_window_dict: Dict[str, Any] = {}
+    if payload.time_window is not None:
+        if payload.time_window.from_ is not None:
+            time_window_dict["from"] = payload.time_window.from_
+        if payload.time_window.to is not None:
+            time_window_dict["to"] = payload.time_window.to
+
+    if not time_window_dict:
+        raise HTTPException(status_code=400, detail="Para agendar debe proporcionar time_window.from y/o time_window.to")
+
+    appt = appointment_store.create_appointment(
+        property_ids=[payload.property_id],
+        owner_id=None,
+        selection_id=None,
+        channel="chat",
+        requester=payload.user.dict(by_alias=True),
+        time_window=time_window_dict,
+        notes=payload.notes or "",
+        status="pending",
+        contact_phone_used=payload.user.phone or "",
+        metadata={"criterios_inferidos": criterios},
+    )
+
+    base_response["appointment"] = {
+        "appointment_id": appt.appointment_id,
+        "property_ids": appt.property_ids,
+        "owner_id": appt.owner_id,
+        "selection_id": appt.selection_id,
+        "channel": appt.channel,
+        "requester": appt.requester,
+        "time_window": appt.time_window,
+        "notes": appt.notes,
+        "status": appt.status,
+        "contact_phone_used": appt.contact_phone_used,
+        "metadata": appt.metadata,
+        "created_at": appt.created_at,
+        "updated_at": appt.updated_at,
+    }
+
+    return base_response
+
+
 @router.post("/buscar")
 async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
     modelo = _get_modelo_inmuebles()
@@ -270,7 +333,7 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
         except Exception:
             pass
 
-        return {
+        base_response = {
             "mensaje": "No se pudieron inferir criterios claros a partir del texto. Intenta ser más específico.",
             "texto_original": texto,
             "criterios_inferidos": criterios,
@@ -279,6 +342,7 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
             "total_retornados": 0,
             "resultados": [],
         }
+        return _maybe_schedule_appointment(payload, criterios_originales, base_response)
 
     filtros_relajados: List[str] = []
 
@@ -472,7 +536,7 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
         except Exception:
             pass
 
-        return {
+        base_response = {
             "mensaje": mensaje,
             "texto_original": texto,
             "criterios_inferidos": criterios,
@@ -483,6 +547,7 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
             "estadisticas": estadisticas_resultado,
             "resultados": resultado_limitado.to_dict("records"),
         }
+        return _maybe_schedule_appointment(payload, criterios_originales, base_response)
 
     # 6) Caso sin resultados ni siquiera relajando filtros: usar afinidad para sugerencias
     try:
@@ -556,7 +621,7 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
             "principales, pero se encontraron sugerencias ordenadas por afinidad."
         )
 
-        return {
+        base_response = {
             "mensaje": mensaje,
             "texto_original": texto,
             "criterios_inferidos": criterios,
@@ -567,6 +632,7 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
             "estadisticas": {},
             "resultados": df_sugerencias.to_dict("records"),
         }
+        return _maybe_schedule_appointment(payload, criterios_originales, base_response)
     except Exception:
         try:
             guardar_consulta_nlp(
@@ -580,7 +646,7 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
         except Exception:
             pass
 
-        return {
+        base_response = {
             "mensaje": "No se encontraron inmuebles que coincidan con la descripción proporcionada, incluso relajando filtros principales",
             "texto_original": texto,
             "criterios_inferidos": criterios,
@@ -590,3 +656,4 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
             "total_retornados": 0,
             "resultados": [],
         }
+        return _maybe_schedule_appointment(payload, criterios_originales, base_response)

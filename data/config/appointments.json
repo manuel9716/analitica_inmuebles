@@ -54,5 +54,69 @@
     },
     "created_at": 1765930886.684245,
     "updated_at": 1765931516.443298
+  },
+  {
+    "appointment_id": "appt_e60149fa0550",
+    "property_ids": [
+      "wasi:9654730"
+    ],
+    "owner_id": null,
+    "selection_id": null,
+    "channel": "chat",
+    "requester": {
+      "name": "Juan Pérez",
+      "email": "juan@example.com",
+      "phone": "+57 3001234567",
+      "preferred_contact": "phone"
+    },
+    "time_window": {
+      "from": "2025-12-20T15:00:00",
+      "to": "2025-12-20T16:00:00"
+    },
+    "notes": "Agendado desde el chat NLP para la casa frente almacén Éxito Calle 5a",
+    "status": "pending",
+    "contact_phone_used": "+57 3001234567",
+    "metadata": {
+      "criterios_inferidos": {
+        "tipo": "Casa",
+        "tipo_negocio": "Arriendo",
+        "ciudad": "Medellín",
+        "tiene_parqueadero": true
+      }
+    },
+    "created_at": 1766523899.959567,
+    "updated_at": 1766523899.959567
+  },
+  {
+    "appointment_id": "appt_39f9f5e6d71d",
+    "property_ids": [
+      "wasi:9654730"
+    ],
+    "owner_id": null,
+    "selection_id": null,
+    "channel": "chat",
+    "requester": {
+      "name": "usuario pruebas",
+      "email": "manuelvalencia9716@gmail.com",
+      "phone": "3166684650",
+      "preferred_contact": "phone"
+    },
+    "time_window": {
+      "from": "2025-12-20T15:00:00",
+      "to": "2025-12-20T16:00:00"
+    },
+    "notes": "Agendado desde el chat NLP para la casa frente almacén Éxito Calle 5a",
+    "status": "pending",
+    "contact_phone_used": "3166684650",
+    "metadata": {
+      "criterios_inferidos": {
+        "tipo": "Casa",
+        "tipo_negocio": "Arriendo",
+        "ciudad": "Medellín",
+        "tiene_parqueadero": true
+      }
+    },
+    "created_at": 1766524718.5955892,
+    "updated_at": 1766524718.5955892
   }
 ]
