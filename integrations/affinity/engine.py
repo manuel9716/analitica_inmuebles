@@ -81,6 +81,12 @@ class AffinityEngine:
 
         cfg = self.config
 
+        # Si el inmueble cumple todos los criterios "duros" que el usuario expresó
+        # (ciudad, zona, tipo, tipo_negocio, y banderas booleanas explícitas),
+        # forzamos una afinidad 100 y usamos el cálculo ponderado solo como fallback.
+        if self._matches_hard_criteria(criteria, inmueble):
+            return 100.0
+
         # Sub-scores por campo en rango 0-1
         score_price = self._score_price(criteria, inmueble)
         score_bedrooms = self._score_bedrooms(criteria, inmueble)
@@ -109,6 +115,83 @@ class AffinityEngine:
 
         affinity_0_1 = max(0.0, min(1.0, weighted_sum / total_weight))
         return round(affinity_0_1 * 100.0, 2)
+
+    # --- helpers de coincidencia fuerte ---
+
+    @staticmethod
+    def _matches_hard_criteria(criteria: Dict[str, Any], inmueble: Dict[str, Any]) -> bool:
+        """Devuelve True si el inmueble cumple todos los criterios "duros" explícitos.
+
+        Se consideran duros:
+        - ciudad, zona, tipo, tipo_negocio (coincidencia de texto, case-insensitive)
+        - banderas booleanas como tiene_parqueadero, tiene_piscina, tiene_gimnasio,
+          tiene_seguridad, tiene_ascensor, mascotas, amoblado, balcon, terraza
+
+        La idea es que si el usuario pide "apto en Cali con parqueadero", cualquier
+        inmueble que sea de Cali y tenga parqueadero reciba afinidad 100.
+        """
+
+        if not criteria:
+            return False
+
+        # Comparaciones de texto
+        def _norm_str(v: Any) -> str:
+            return str(v or "").strip().lower()
+
+        hard_text_fields = ["ciudad", "zona", "tipo", "tipo_negocio"]
+        titulo_prop = _norm_str(inmueble.get("titulo"))
+        direccion_prop = _norm_str(inmueble.get("direccion"))
+
+        for field in hard_text_fields:
+            crit_val = _norm_str(criteria.get(field))
+            if not crit_val:
+                continue
+
+            prop_val = _norm_str(inmueble.get(field))
+
+            if field == "ciudad":
+                # Aceptar coincidencia si la ciudad aparece en ciudad, título o dirección
+                if prop_val == crit_val:
+                    continue
+                if crit_val in titulo_prop or crit_val in direccion_prop:
+                    continue
+                return False
+
+            else:
+                if not prop_val or crit_val != prop_val:
+                    return False
+
+        # Banderas booleanas explícitas
+        bool_fields = [
+            "tiene_parqueadero",
+            "tiene_piscina",
+            "tiene_gimnasio",
+            "tiene_seguridad",
+            "tiene_ascensor",
+            "mascotas",
+            "amoblado",
+            "balcon",
+            "terraza",
+        ]
+
+        for field in bool_fields:
+            if field not in criteria:
+                continue
+            crit_val = bool(criteria.get(field))
+            prop_val = bool(inmueble.get(field))
+            if crit_val != prop_val:
+                return False
+
+        # Si ninguno de los campos anteriores estaba en criteria, no consideramos
+        # que haya un match fuerte; en ese caso se usará solo el score ponderado.
+        has_any_hard = any(
+            (field in criteria and criteria.get(field) not in (None, ""))
+            for field in (hard_text_fields + bool_fields)
+        )
+        if not has_any_hard:
+            return False
+
+        return True
 
     def classify_level(self, score: float) -> str:
         """Clasifica un score 0-100 en un nivel simbólico."""
@@ -301,12 +384,19 @@ class AffinityEngine:
 
         ciudad_prop = str(inmueble.get("ciudad", "") or "").strip().lower()
         zona_prop = str(inmueble.get("zona", "") or "").strip().lower()
+        titulo_prop = str(inmueble.get("titulo", "") or "").strip().lower()
+        direccion_prop = str(inmueble.get("direccion", "") or "").strip().lower()
 
-        if ciudad_crit and ciudad_prop and ciudad_crit == ciudad_prop:
-            # Misma ciudad
-            if zona_crit and zona_prop and zona_crit == zona_prop:
-                return 1.0
-            return 0.8
+        if ciudad_crit:
+            # Coincidencia exacta en el campo ciudad
+            if ciudad_prop and ciudad_crit == ciudad_prop:
+                if zona_crit and zona_prop and zona_crit == zona_prop:
+                    return 1.0
+                return 0.8
+
+            # Ciudad mencionada en título o dirección (casos donde "ciudad" viene como dirección)
+            if ciudad_crit in titulo_prop or ciudad_crit in direccion_prop:
+                return 0.8
 
         # Si solo coincide zona como texto dentro del campo
         if zona_crit and zona_crit in zona_prop:
