@@ -118,50 +118,68 @@ class AffinityEngine:
 
     # --- helpers de coincidencia fuerte ---
 
-    @staticmethod
-    def _matches_hard_criteria(criteria: Dict[str, Any], inmueble: Dict[str, Any]) -> bool:
-        """Devuelve True si el inmueble cumple todos los criterios "duros" explícitos.
+    def _matches_hard_criteria(self, criteria: Dict[str, Any], inmueble: Dict[str, Any]) -> bool:
+        """Devuelve True si el inmueble cumple los criterios para tener afinidad 100%.
 
-        Se consideran duros:
-        - ciudad, zona, tipo, tipo_negocio (coincidencia de texto, case-insensitive)
-        - banderas booleanas como tiene_parqueadero, tiene_piscina, tiene_gimnasio,
-          tiene_seguridad, tiene_ascensor, mascotas, amoblado, balcon, terraza
-
-        La idea es que si el usuario pide "apto en Cali con parqueadero", cualquier
-        inmueble que sea de Cali y tenga parqueadero reciba afinidad 100.
+        Nueva lógica: Cualquier coincidencia en palabras clave entre los criterios
+        y las características del inmueble puede dar 100% de afinidad.
         """
 
         if not criteria:
             return False
 
-        # Comparaciones de texto
+        # Función para normalizar texto
         def _norm_str(v: Any) -> str:
             return str(v or "").strip().lower()
 
-        hard_text_fields = ["ciudad", "zona", "tipo", "tipo_negocio"]
-        titulo_prop = _norm_str(inmueble.get("titulo"))
-        direccion_prop = _norm_str(inmueble.get("direccion"))
+        # 1. Verificar coincidencias en campos de texto
+        texto_criterios = ""
+        campos_criterios = ["ciudad", "zona", "tipo", "tipo_negocio"]
+        for campo in campos_criterios:
+            if campo in criteria and criteria[campo]:
+                texto_criterios += " " + _norm_str(criteria[campo])
 
-        for field in hard_text_fields:
-            crit_val = _norm_str(criteria.get(field))
-            if not crit_val:
-                continue
+        # Extraer palabras clave del texto de búsqueda
+        palabras_clave = set()
+        if texto_criterios:
+            palabras_clave = {p for p in texto_criterios.split() if len(p) > 2}
 
-            prop_val = _norm_str(inmueble.get(field))
+        if palabras_clave:
+            # Buscar estas palabras en el texto del inmueble
+            texto_inmueble = ""
+            campos_inmueble = ["ciudad", "zona", "tipo", "tipo_negocio", "titulo", "descripcion"]
+            for campo in campos_inmueble:
+                if campo in inmueble and inmueble[campo]:
+                    texto_inmueble += " " + _norm_str(inmueble[campo])
+            
+            # Si encontramos alguna palabra clave en el inmueble, es una coincidencia
+            for palabra in palabras_clave:
+                if palabra in texto_inmueble:
+                    return True
 
-            if field == "ciudad":
-                # Aceptar coincidencia si la ciudad aparece en ciudad, título o dirección
-                if prop_val == crit_val:
-                    continue
-                if crit_val in titulo_prop or crit_val in direccion_prop:
-                    continue
-                return False
+        # 2. Verificar coincidencias en campos numéricos (habitaciones, baños, etc.)
+        campos_numericos = ["habitaciones", "banos", "habitaciones_min", "banos_min"]
+        
+        for campo in campos_numericos:
+            if campo in criteria and criteria[campo] is not None:
+                campo_inmueble = "habitaciones" if "habitacion" in campo else "banos"
+                if campo_inmueble in inmueble and inmueble[campo_inmueble] is not None:
+                    # Para campos _min, verificamos que sea >= al criterio
+                    if "_min" in campo:
+                        try:
+                            if int(inmueble[campo_inmueble]) >= int(criteria[campo]):
+                                return True
+                        except (ValueError, TypeError):
+                            pass
+                    # Para campos exactos, verificamos igualdad
+                    else:
+                        try:
+                            if int(inmueble[campo_inmueble]) == int(criteria[campo]):
+                                return True
+                        except (ValueError, TypeError):
+                            pass
 
-            else:
-                if not prop_val or crit_val != prop_val:
-                    return False
-
-        # Banderas booleanas explícitas
+        # 3. Verificar banderas booleanas
         bool_fields = [
             "tiene_parqueadero",
             "tiene_piscina",
@@ -175,23 +193,12 @@ class AffinityEngine:
         ]
 
         for field in bool_fields:
-            if field not in criteria:
-                continue
-            crit_val = bool(criteria.get(field))
-            prop_val = bool(inmueble.get(field))
-            if crit_val != prop_val:
-                return False
+            if field in criteria:
+                crit_val = bool(criteria[field])
+                if field in inmueble and bool(inmueble[field]) == crit_val:
+                    return True
 
-        # Si ninguno de los campos anteriores estaba en criteria, no consideramos
-        # que haya un match fuerte; en ese caso se usará solo el score ponderado.
-        has_any_hard = any(
-            (field in criteria and criteria.get(field) not in (None, ""))
-            for field in (hard_text_fields + bool_fields)
-        )
-        if not has_any_hard:
-            return False
-
-        return True
+        return False
 
     def classify_level(self, score: float) -> str:
         """Clasifica un score 0-100 en un nivel simbólico."""
