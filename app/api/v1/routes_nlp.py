@@ -207,11 +207,43 @@ def _parsear_texto_a_criterios(texto: str) -> Dict[str, Any]:
         modelo = _get_modelo_inmuebles()
         if modelo.df is not None and "ciudad" in modelo.df.columns:
             ciudades = [str(c) for c in modelo.df["ciudad"].dropna().unique().tolist()]
-            for ciudad in ciudades:
-                c_lower = ciudad.lower()
-                if c_lower in t:
-                    criterios["ciudad"] = ciudad
+            
+            # Extraer posibles menciones de ciudades con palabras clave que las preceden
+            ciudad_patterns = [
+                r"\ben\s+([a-zA-Z\s]+)(?:,|\.|$)",  # "en Cali", "en Cali, que"
+                r"\bde\s+([a-zA-Z\s]+)(?:,|\.|$)",  # "de Cali", "de Cali, que"
+                r"\bpara\s+([a-zA-Z\s]+)(?:,|\.|$)",  # "para Cali"
+                r"\bciudad\s+(?:de\s+)?([a-zA-Z\s]+)(?:,|\.|$)"  # "ciudad de Cali", "ciudad Cali"
+            ]
+            
+            # Primero buscar por patrones específicos
+            import re
+            ciudad_encontrada = False
+            for pattern in ciudad_patterns:
+                matches = re.findall(pattern, t)
+                for match in matches:
+                    ciudad_candidata = match.strip().lower()
+                    # Buscar la coincidencia más cercana en la lista de ciudades
+                    for ciudad in ciudades:
+                        c_lower = ciudad.lower()
+                        if ciudad_candidata == c_lower or ciudad_candidata in c_lower or c_lower in ciudad_candidata:
+                            criterios["ciudad"] = ciudad
+                            ciudad_encontrada = True
+                            break
+                    if ciudad_encontrada:
+                        break
+                if ciudad_encontrada:
                     break
+            
+            # Si no se encontró con los patrones, buscar coincidencias directas en el texto
+            if not ciudad_encontrada:
+                # Ordenar ciudades por longitud (descendente) para matchear ciudades completas primero
+                ciudades_ordenadas = sorted(ciudades, key=lambda x: len(str(x)), reverse=True)
+                for ciudad in ciudades_ordenadas:
+                    c_lower = str(ciudad).lower()
+                    if c_lower in t:
+                        criterios["ciudad"] = ciudad
+                        break
     except Exception:
         pass
 
@@ -424,12 +456,13 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
     if len(resultado) == 0:
         orden_relajacion = [
             ["precio_min", "precio_max"],
-            ["ciudad"],
-            ["tipo_negocio"],
             ["amoblado"],
             ["mascotas"],
             ["balcon"],
             ["terraza"],
+            ["tipo_negocio"],
+            ["ciudad"],
+            ["tipo"]
         ]
 
         criterios_relajados = dict(criterios_busqueda)
@@ -539,12 +572,38 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
             def _apply_affinity(row):
                 row_dict = row.to_dict()
                 score = affinity_engine.compute_affinity(criterios_originales, row_dict)
+                
+                # Reducir la afinidad si se relajaron filtros importantes
+                filtros_criticos = ["ciudad", "tipo"]
+                if any(filtro in filtros_relajados for filtro in filtros_criticos):
+                    # Si la ciudad o el tipo fueron relajados, verificar si el inmueble coincide 
+                    # con los criterios originales para esos campos
+                    for filtro in filtros_criticos:
+                        if filtro in criterios_originales and filtro in row_dict:
+                            crit_val = str(criterios_originales[filtro]).strip().lower()
+                            prop_val = str(row_dict[filtro] or "").strip().lower()
+                            if crit_val != prop_val:
+                                # Limitar afinidad para resultados que no coinciden con criterios explícitos
+                                score = min(score, 20.0)  # Nivel "very_low"
+                
                 level = affinity_engine.classify_level(score)
                 row["affinity_score"] = float(score)
                 row["affinity_level"] = level
                 return row
 
             resultado_limitado = resultado_limitado.apply(_apply_affinity, axis=1)
+
+            # Ordenar primero por afinidad (desc) y luego por score_similitud (desc) si existe.
+            sort_cols = ["affinity_score"]
+            ascending_flags = [False]
+            if "score_similitud" in resultado_limitado.columns:
+                sort_cols.append("score_similitud")
+                ascending_flags.append(False)
+
+            resultado_limitado = resultado_limitado.sort_values(
+                by=sort_cols,
+                ascending=ascending_flags,
+            )
         except Exception:
             pass
 
@@ -636,6 +695,17 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
         def _apply_affinity_suggest(row):
             row_dict = row.to_dict()
             score = affinity_engine.compute_affinity(criterios_originales, row_dict)
+            
+            # Aplicar misma lógica de reducción para sugerencias
+            filtros_criticos = ["ciudad", "tipo"]
+            for filtro in filtros_criticos:
+                if filtro in criterios_originales and filtro in row_dict:
+                    crit_val = str(criterios_originales[filtro]).strip().lower()
+                    prop_val = str(row_dict[filtro] or "").strip().lower()
+                    if crit_val != prop_val:
+                        # Limitar afinidad para resultados que no coinciden con criterios explícitos
+                        score = min(score, 20.0)  # Nivel "very_low"
+                        
             level = affinity_engine.classify_level(score)
             row["affinity_score"] = float(score)
             row["affinity_level"] = level

@@ -150,12 +150,11 @@ class AffinityEngine:
             prop_val = _norm_str(inmueble.get(field))
 
             if field == "ciudad":
-                # Aceptar coincidencia si la ciudad aparece en ciudad, título o dirección
-                if prop_val == crit_val:
-                    continue
-                if crit_val in titulo_prop or crit_val in direccion_prop:
-                    continue
-                return False
+                # Solo aceptar coincidencia exacta en el campo ciudad
+                # No usar título o dirección para coincidencias laxas
+                if prop_val != crit_val:
+                    return False
+                continue
 
             else:
                 if not prop_val or crit_val != prop_val:
