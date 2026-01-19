@@ -582,8 +582,14 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
                         if filtro in criterios_originales and filtro in row_dict:
                             crit_val = str(criterios_originales[filtro]).strip().lower()
                             prop_val = str(row_dict[filtro] or "").strip().lower()
-                            if crit_val != prop_val:
-                                # Limitar afinidad para resultados que no coinciden con criterios explícitos
+                            
+                            # Usar coincidencia parcial: si la ciudad o tipo está contenida en el valor
+                            # o viceversa, considerar que hay coincidencia y mantener el 100% de afinidad
+                            if crit_val in prop_val or prop_val in crit_val:
+                                # Hay coincidencia parcial, mantener la afinidad calculada
+                                pass
+                            else:
+                                # No hay coincidencia ni siquiera parcial
                                 score = min(score, 20.0)  # Nivel "very_low"
                 
                 level = affinity_engine.classify_level(score)
@@ -702,8 +708,14 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
                 if filtro in criterios_originales and filtro in row_dict:
                     crit_val = str(criterios_originales[filtro]).strip().lower()
                     prop_val = str(row_dict[filtro] or "").strip().lower()
-                    if crit_val != prop_val:
-                        # Limitar afinidad para resultados que no coinciden con criterios explícitos
+                    
+                    # Usar coincidencia parcial: si la ciudad o tipo está contenida en el valor
+                    # o viceversa, considerar que hay coincidencia y mantener el 100% de afinidad
+                    if crit_val in prop_val or prop_val in crit_val:
+                        # Hay coincidencia parcial, mantener la afinidad calculada
+                        pass
+                    else:
+                        # No hay coincidencia ni siquiera parcial
                         score = min(score, 20.0)  # Nivel "very_low"
                         
             level = affinity_engine.classify_level(score)
