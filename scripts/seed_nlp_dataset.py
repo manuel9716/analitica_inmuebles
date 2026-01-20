@@ -1,12 +1,6 @@
 import pandas as pd
-import psycopg2
 
-from db_nlp_logs import PG_CONFIG
-
-
-TABLE_NAME = "nlp_dataset_anotado"
 CSV_PATH = "data/datasets/dataset_nlp_inmuebles_5000.csv"
-
 
 COLUMNS = [
     "texto_usuario",
@@ -27,42 +21,11 @@ COLUMNS = [
 ]
 
 
-def get_connection():
-    return psycopg2.connect(**PG_CONFIG)
-
-
-def create_table_if_not_exists():
-    """Crea la tabla base para el dataset anotado si no existe."""
-    ddl = f"""
-    CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
-        id SERIAL PRIMARY KEY,
-        texto_usuario TEXT NOT NULL,
-        tipo_inmueble TEXT,
-        habitaciones TEXT,
-        banos TEXT,
-        parqueadero TEXT,
-        estrato TEXT,
-        operacion TEXT,
-        ciudad TEXT,
-        zona TEXT,
-        precio_rango TEXT,
-        amoblado TEXT,
-        mascotas TEXT,
-        balcon TEXT,
-        terraza TEXT,
-        areas_comunes TEXT
-    );
-    """
-    conn = get_connection()
-    try:
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(ddl)
-    finally:
-        conn.close()
-
-
 def seed_from_csv(csv_path: str = CSV_PATH):
+    """
+    Lee el dataset de un archivo CSV.
+    La funcionalidad de carga a PostgreSQL está deshabilitada.
+    """
     print(f"Leyendo CSV: {csv_path}...")
     df = pd.read_csv(csv_path)
 
@@ -73,31 +36,14 @@ def seed_from_csv(csv_path: str = CSV_PATH):
 
     df = df[cols_present].copy()
     df["texto_usuario"] = df["texto_usuario"].fillna("").astype(str)
-
-    conn = get_connection()
-    try:
-        with conn:
-            with conn.cursor() as cur:
-                # Vaciar tabla antes de insertar para evitar duplicados masivos
-                print(f"Vaciando tabla {TABLE_NAME}...")
-                cur.execute(f"TRUNCATE {TABLE_NAME};")
-
-                print(f"Insertando {len(df)} filas en {TABLE_NAME}...")
-                insert_cols = cols_present
-                placeholders = ",".join(["%s"] * len(insert_cols))
-                cols_sql = ",".join(insert_cols)
-                sql = f"INSERT INTO {TABLE_NAME} ({cols_sql}) VALUES ({placeholders});"
-
-                for _, row in df.iterrows():
-                    values = [None if pd.isna(row[c]) else str(row[c]) for c in insert_cols]
-                    cur.execute(sql, values)
-    finally:
-        conn.close()
-
-    print("\n✓ Dataset NLP cargado en PostgreSQL correctamente.")
+    
+    print(f"CSV leído correctamente: {len(df)} filas")
+    print("⚠️ Nota: La carga a PostgreSQL está deshabilitada.")
+    
+    return df
 
 
 if __name__ == "__main__":
-    print("Creando tabla si no existe...")
-    create_table_if_not_exists()
-    seed_from_csv()
+    print("⚠️ PostgreSQL deshabilitado. Solo se leerá el CSV.")
+    df = seed_from_csv()
+    print(f"\n✓ Dataset cargado: {len(df)} filas disponibles en memoria.")

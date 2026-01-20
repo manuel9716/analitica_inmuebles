@@ -2,9 +2,6 @@ import pandas as pd
 import joblib
 from typing import Dict, Any, List
 
-import psycopg2
-from db_nlp_logs import PG_CONFIG
-
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
@@ -40,39 +37,9 @@ def cargar_dataset_nlp(ruta: str = "data/datasets/dataset_nlp_inmuebles_5000.csv
 
 
 def cargar_dataset_nlp_desde_db() -> pd.DataFrame:
-    """Carga el dataset NLP desde la tabla nlp_dataset_anotado en PostgreSQL.
-
-    Requiere que seed_nlp_dataset.py haya sido ejecutado previamente.
+    """Versión deshabilitada que da un mensaje de error.
     """
-    columnas = [
-        "texto_usuario",
-        "tipo_inmueble",
-        "habitaciones",
-        "banos",
-        "parqueadero",
-        "estrato",
-        "operacion",
-        "ciudad",
-        "zona",
-        "precio_rango",
-        "amoblado",
-        "mascotas",
-        "balcon",
-        "terraza",
-        "areas_comunes",
-    ]
-
-    cols_sql = ", ".join(columnas)
-    query = f"SELECT {cols_sql} FROM nlp_dataset_anotado"
-
-    conn = psycopg2.connect(**PG_CONFIG)
-    try:
-        df = pd.read_sql(query, conn)
-    finally:
-        conn.close()
-
-    df["texto_usuario"] = df["texto_usuario"].fillna("")
-    return df
+    raise NotImplementedError("La conexión a PostgreSQL está deshabilitada. Use cargar_dataset_nlp() en su lugar.")
 
 
 def crear_pipeline_clasificacion() -> Pipeline:
@@ -208,15 +175,9 @@ def predecir_desde_texto(modelo_nlp: Dict[str, Any], texto: str) -> Dict[str, An
 
 if __name__ == "__main__":
     # Entrenamiento rápido desde la línea de comandos
-    print("Cargando dataset NLP desde PostgreSQL...")
-    try:
-        df_nlp = cargar_dataset_nlp_desde_db()
-        print(f"✓ Dataset cargado desde BD: {len(df_nlp)} filas")
-    except Exception as e:
-        print(f"⚠️ No se pudo cargar dataset desde BD: {e}")
-        print("   Intentando cargar desde CSV local...")
-        df_nlp = cargar_dataset_nlp()
-        print(f"✓ Dataset cargado desde CSV: {len(df_nlp)} filas")
+    print("Cargando dataset NLP desde CSV local...")
+    df_nlp = cargar_dataset_nlp()
+    print(f"✓ Dataset cargado desde CSV: {len(df_nlp)} filas")
 
     print("Entrenando modelos de texto...")
     modelo_nlp = entrenar_modelos(df_nlp)
