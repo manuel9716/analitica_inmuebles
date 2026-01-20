@@ -571,37 +571,101 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
         try:
             def _apply_affinity(row):
                 row_dict = row.to_dict()
-                score = affinity_engine.compute_affinity(criterios_originales, row_dict)
+                base_score = affinity_engine.compute_affinity(criterios_originales, row_dict)
                 
-                # Reducir la afinidad si se relajaron filtros importantes
+                # Calcular puntuación por coincidencia exacta en criterios mencionados explícitamente
+                exact_match_score = 0
+                criterios_mencionados = {}
+                
+                # Considerar solo los criterios mencionados explícitamente por el usuario
+                for key, value in criterios_originales.items():
+                    if key in ["ciudad", "habitaciones_min", "tipo", "precio_min", "precio_max", "banos_min"]:
+                        criterios_mencionados[key] = value
+                
+                # Verificar cada criterio mencionado
+                for criterio, valor in criterios_mencionados.items():
+                    if criterio == "habitaciones_min" and "habitaciones" in row_dict:
+                        if row_dict["habitaciones"] is not None:
+                            try:
+                                hab_prop = int(row_dict["habitaciones"])
+                                hab_crit = int(valor)
+                                if hab_prop == hab_crit:
+                                    # Coincidencia exacta en habitaciones
+                                    exact_match_score += 1000
+                                elif hab_prop > hab_crit:
+                                    # Cumple mínimo pero no es exacto
+                                    exact_match_score += 100
+                            except (ValueError, TypeError):
+                                pass
+                    
+                    elif criterio == "banos_min" and "banos" in row_dict:
+                        if row_dict["banos"] is not None:
+                            try:
+                                ban_prop = int(str(row_dict["banos"]).replace(">10", "10"))
+                                ban_crit = int(valor)
+                                if ban_prop == ban_crit:
+                                    # Coincidencia exacta en baños
+                                    exact_match_score += 1000
+                                elif ban_prop > ban_crit:
+                                    # Cumple mínimo pero no es exacto
+                                    exact_match_score += 100
+                            except (ValueError, TypeError):
+                                pass
+                                
+                    elif criterio == "ciudad" and "ciudad" in row_dict:
+                        if row_dict["ciudad"] is not None:
+                            crit_val = str(valor).strip().lower()
+                            prop_val = str(row_dict["ciudad"]).strip().lower()
+                            
+                            if crit_val == prop_val:
+                                # Coincidencia exacta en ciudad
+                                exact_match_score += 1000
+                            elif crit_val in prop_val or prop_val in crit_val:
+                                # Coincidencia parcial en ciudad
+                                exact_match_score += 100
+                    
+                    elif criterio == "tipo" and "tipo" in row_dict:
+                        if row_dict["tipo"] is not None:
+                            crit_val = str(valor).strip().lower()
+                            prop_val = str(row_dict["tipo"]).strip().lower()
+                            
+                            if crit_val == prop_val:
+                                # Coincidencia exacta en tipo
+                                exact_match_score += 1000
+                            elif crit_val in prop_val or prop_val in crit_val:
+                                # Coincidencia parcial en tipo
+                                exact_match_score += 100
+                
+                # Reducir la afinidad base si se relajaron filtros importantes y no hay coincidencia
                 filtros_criticos = ["ciudad", "tipo"]
                 if any(filtro in filtros_relajados for filtro in filtros_criticos):
-                    # Si la ciudad o el tipo fueron relajados, verificar si el inmueble coincide 
-                    # con los criterios originales para esos campos
                     for filtro in filtros_criticos:
                         if filtro in criterios_originales and filtro in row_dict:
                             crit_val = str(criterios_originales[filtro]).strip().lower()
                             prop_val = str(row_dict[filtro] or "").strip().lower()
                             
-                            # Usar coincidencia parcial: si la ciudad o tipo está contenida en el valor
-                            # o viceversa, considerar que hay coincidencia y mantener el 100% de afinidad
-                            if crit_val in prop_val or prop_val in crit_val:
-                                # Hay coincidencia parcial, mantener la afinidad calculada
-                                pass
-                            else:
-                                # No hay coincidencia ni siquiera parcial
-                                score = min(score, 20.0)  # Nivel "very_low"
+                            if not (crit_val in prop_val or prop_val in crit_val):
+                                # No hay coincidencia ni parcial
+                                base_score = min(base_score, 20.0)  # Nivel "very_low"
                 
-                level = affinity_engine.classify_level(score)
-                row["affinity_score"] = float(score)
-                row["affinity_level"] = level
-                return row
+                level = affinity_engine.classify_level(base_score)
+                
+                # Guardar tanto la puntuación de coincidencia exacta (para ordenamiento)
+                # como la afinidad base (para mostrar al usuario)
+                return pd.Series([exact_match_score, float(base_score), level], 
+                                index=["exact_match_score", "affinity_score", "affinity_level"])
 
-            resultado_limitado = resultado_limitado.apply(_apply_affinity, axis=1)
+            # Aplicar la función de afinidad y conservar todos los datos originales
+            scores = resultado_limitado.apply(_apply_affinity, axis=1)
+            
+            # Añadir los scores al dataframe original sin perder las demás columnas
+            resultado_limitado['exact_match_score'] = scores['exact_match_score']
+            resultado_limitado['affinity_score'] = scores['affinity_score']
+            resultado_limitado['affinity_level'] = scores['affinity_level']
 
-            # Ordenar primero por afinidad (desc) y luego por score_similitud (desc) si existe.
-            sort_cols = ["affinity_score"]
-            ascending_flags = [False]
+            # Ordenar primero por coincidencia exacta, luego por afinidad y finalmente por similitud
+            sort_cols = ["exact_match_score", "affinity_score"]
+            ascending_flags = [False, False]
             if "score_similitud" in resultado_limitado.columns:
                 sort_cols.append("score_similitud")
                 ascending_flags.append(False)
@@ -700,7 +764,70 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
 
         def _apply_affinity_suggest(row):
             row_dict = row.to_dict()
-            score = affinity_engine.compute_affinity(criterios_originales, row_dict)
+            base_score = affinity_engine.compute_affinity(criterios_originales, row_dict)
+            
+            # Calcular puntuación por coincidencia exacta en criterios mencionados explícitamente
+            exact_match_score = 0
+            criterios_mencionados = {}
+            
+            # Considerar solo los criterios mencionados explícitamente por el usuario
+            for key, value in criterios_originales.items():
+                if key in ["ciudad", "habitaciones_min", "tipo", "precio_min", "precio_max", "banos_min"]:
+                    criterios_mencionados[key] = value
+            
+            # Verificar cada criterio mencionado
+            for criterio, valor in criterios_mencionados.items():
+                if criterio == "habitaciones_min" and "habitaciones" in row_dict:
+                    if row_dict["habitaciones"] is not None:
+                        try:
+                            hab_prop = int(row_dict["habitaciones"])
+                            hab_crit = int(valor)
+                            if hab_prop == hab_crit:
+                                # Coincidencia exacta en habitaciones
+                                exact_match_score += 1000
+                            elif hab_prop > hab_crit:
+                                # Cumple mínimo pero no es exacto
+                                exact_match_score += 100
+                        except (ValueError, TypeError):
+                            pass
+                
+                elif criterio == "banos_min" and "banos" in row_dict:
+                    if row_dict["banos"] is not None:
+                        try:
+                            ban_prop = int(str(row_dict["banos"]).replace(">10", "10"))
+                            ban_crit = int(valor)
+                            if ban_prop == ban_crit:
+                                # Coincidencia exacta en baños
+                                exact_match_score += 1000
+                            elif ban_prop > ban_crit:
+                                # Cumple mínimo pero no es exacto
+                                exact_match_score += 100
+                        except (ValueError, TypeError):
+                            pass
+                            
+                elif criterio == "ciudad" and "ciudad" in row_dict:
+                    if row_dict["ciudad"] is not None:
+                        crit_val = str(valor).strip().lower()
+                        prop_val = str(row_dict["ciudad"]).strip().lower()
+                        
+                        if crit_val == prop_val:
+                            # Coincidencia exacta en ciudad
+                            exact_match_score += 1000
+                        elif crit_val in prop_val or prop_val in crit_val:
+                            # Coincidencia parcial en ciudad
+                            exact_match_score += 100
+                
+                elif criterio == "tipo" and "tipo" in row_dict:
+                    if row_dict["tipo"] is not None:
+                        crit_val = str(valor).strip().lower()
+                        prop_val = str(row_dict["tipo"]).strip().lower()
+                        
+                        if crit_val == prop_val:
+                            # Coincidencia exacta en tipo
+                            exact_match_score += 1000
+                        elif crit_val in prop_val or prop_val in crit_val:
+                            # Coincidencia parcial en tipo
+                            exact_match_score += 100
             
             # Aplicar misma lógica de reducción para sugerencias
             filtros_criticos = ["ciudad", "tipo"]
@@ -709,22 +836,26 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
                     crit_val = str(criterios_originales[filtro]).strip().lower()
                     prop_val = str(row_dict[filtro] or "").strip().lower()
                     
-                    # Usar coincidencia parcial: si la ciudad o tipo está contenida en el valor
-                    # o viceversa, considerar que hay coincidencia y mantener el 100% de afinidad
-                    if crit_val in prop_val or prop_val in crit_val:
-                        # Hay coincidencia parcial, mantener la afinidad calculada
-                        pass
-                    else:
-                        # No hay coincidencia ni siquiera parcial
-                        score = min(score, 20.0)  # Nivel "very_low"
-                        
-            level = affinity_engine.classify_level(score)
-            row["affinity_score"] = float(score)
-            row["affinity_level"] = level
-            return row
+                    if not (crit_val in prop_val or prop_val in crit_val):
+                        # No hay coincidencia ni parcial
+                        base_score = min(base_score, 20.0)  # Nivel "very_low"
+                    
+            level = affinity_engine.classify_level(base_score)
+            
+            # Guardar tanto la puntuación de coincidencia exacta como la afinidad base
+            return pd.Series([exact_match_score, float(base_score), level],
+                           index=["exact_match_score", "affinity_score", "affinity_level"])
 
-        df_base = df_base.apply(_apply_affinity_suggest, axis=1)
-        df_base = df_base.sort_values("affinity_score", ascending=False)
+        # Aplicar la función de afinidad y conservar todos los datos originales
+        scores = df_base.apply(_apply_affinity_suggest, axis=1)
+        
+        # Añadir los scores al dataframe original sin perder las demás columnas
+        df_base['exact_match_score'] = scores['exact_match_score']
+        df_base['affinity_score'] = scores['affinity_score']
+        df_base['affinity_level'] = scores['affinity_level']
+        
+        # Ordenar por los criterios establecidos
+        df_base = df_base.sort_values(["exact_match_score", "affinity_score"], ascending=[False, False])
 
         df_sugerencias = df_base[df_base["affinity_score"] > 0].head(50).copy()
 
