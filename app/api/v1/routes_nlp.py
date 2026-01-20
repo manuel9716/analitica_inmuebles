@@ -27,13 +27,14 @@ conversaciones_activas: Dict[str, Dict[str, Any]] = {}
 affinity_engine = AffinityEngine()
 
 
+class NLPAppointmentItem(BaseModel):
+    property_id: str
+    time_window: TimeWindow
+    notes: Optional[str] = None
+
+
 class BuscarNLPRequest(BaseModel):
     texto: str
-    action: Optional[str] = None
-    property_id: Optional[str] = None
-    user: Optional[RequesterInfo] = None
-    time_window: Optional[TimeWindow] = None
-    notes: Optional[str] = None
 
 
 class BuscarNLPChatRequest(BaseModel):
@@ -206,15 +207,68 @@ def _parsear_texto_a_criterios(texto: str) -> Dict[str, Any]:
         modelo = _get_modelo_inmuebles()
         if modelo.df is not None and "ciudad" in modelo.df.columns:
             ciudades = [str(c) for c in modelo.df["ciudad"].dropna().unique().tolist()]
-            for ciudad in ciudades:
-                c_lower = ciudad.lower()
-                if c_lower in t:
-                    criterios["ciudad"] = ciudad
+            
+            # Extraer posibles menciones de ciudades con palabras clave que las preceden
+            ciudad_patterns = [
+                r"\ben\s+([a-zA-Z\s]+)(?:,|\.|$)",  # "en Cali", "en Cali, que"
+                r"\bde\s+([a-zA-Z\s]+)(?:,|\.|$)",  # "de Cali", "de Cali, que"
+                r"\bpara\s+([a-zA-Z\s]+)(?:,|\.|$)",  # "para Cali"
+                r"\bciudad\s+(?:de\s+)?([a-zA-Z\s]+)(?:,|\.|$)"  # "ciudad de Cali", "ciudad Cali"
+            ]
+            
+            # Primero buscar por patrones específicos
+            import re
+            ciudad_encontrada = False
+            for pattern in ciudad_patterns:
+                matches = re.findall(pattern, t)
+                for match in matches:
+                    ciudad_candidata = match.strip().lower()
+                    # Buscar la coincidencia más cercana en la lista de ciudades
+                    for ciudad in ciudades:
+                        c_lower = ciudad.lower()
+                        if ciudad_candidata == c_lower or ciudad_candidata in c_lower or c_lower in ciudad_candidata:
+                            criterios["ciudad"] = ciudad
+                            ciudad_encontrada = True
+                            break
+                    if ciudad_encontrada:
+                        break
+                if ciudad_encontrada:
                     break
+            
+            # Si no se encontró con los patrones, buscar coincidencias directas en el texto
+            if not ciudad_encontrada:
+                # Ordenar ciudades por longitud (descendente) para matchear ciudades completas primero
+                ciudades_ordenadas = sorted(ciudades, key=lambda x: len(str(x)), reverse=True)
+                for ciudad in ciudades_ordenadas:
+                    c_lower = str(ciudad).lower()
+                    if c_lower in t:
+                        criterios["ciudad"] = ciudad
+                        break
     except Exception:
         pass
 
     return criterios
+
+
+def _ensure_appointments_from_selection(payload: BuscarNLPRequest) -> None:
+    if payload.appointments is not None:
+        return
+    if not payload.selected_properties:
+        return
+    if payload.time_window is None:
+        return
+
+    items: List[NLPAppointmentItem] = []
+    for pid in payload.selected_properties:
+        items.append(
+            NLPAppointmentItem(
+                property_id=str(pid),
+                time_window=payload.time_window,
+                notes=payload.notes,
+            )
+        )
+
+    payload.appointments = items
 
 
 def _maybe_schedule_appointment(
@@ -224,52 +278,101 @@ def _maybe_schedule_appointment(
 ) -> Dict[str, Any]:
     if payload.action != "schedule":
         return base_response
-
-    if not payload.property_id:
-        raise HTTPException(status_code=400, detail="Para agendar es obligatorio enviar property_id")
-
     if not payload.user or (not payload.user.phone and not payload.user.email):
         raise HTTPException(status_code=400, detail="Para agendar debe proporcionar al menos teléfono o email en user")
 
-    time_window_dict: Dict[str, Any] = {}
-    if payload.time_window is not None:
-        if payload.time_window.from_ is not None:
-            time_window_dict["from"] = payload.time_window.from_
-        if payload.time_window.to is not None:
-            time_window_dict["to"] = payload.time_window.to
+    # Soportar tanto el flujo antiguo (un solo property_id) como el nuevo (lista appointments)
+    created: List[Dict[str, Any]] = []
 
-    if not time_window_dict:
-        raise HTTPException(status_code=400, detail="Para agendar debe proporcionar time_window.from y/o time_window.to")
+    # 1) Flujo múltiple desde appointments
+    if payload.appointments:
+        for item in payload.appointments:
+            time_window_dict: Dict[str, Any] = {}
+            if item.time_window.from_ is not None:
+                time_window_dict["from"] = item.time_window.from_
+            if item.time_window.to is not None:
+                time_window_dict["to"] = item.time_window.to
 
-    appt = appointment_store.create_appointment(
-        property_ids=[payload.property_id],
-        owner_id=None,
-        selection_id=None,
-        channel="chat",
-        requester=payload.user.dict(by_alias=True),
-        time_window=time_window_dict,
-        notes=payload.notes or "",
-        status="pending",
-        contact_phone_used=payload.user.phone or "",
-        metadata={"criterios_inferidos": criterios},
-    )
+            if not time_window_dict:
+                raise HTTPException(status_code=400, detail="Cada cita en appointments debe tener time_window.from y/o time_window.to")
 
-    base_response["appointment"] = {
-        "appointment_id": appt.appointment_id,
-        "property_ids": appt.property_ids,
-        "owner_id": appt.owner_id,
-        "selection_id": appt.selection_id,
-        "channel": appt.channel,
-        "requester": appt.requester,
-        "time_window": appt.time_window,
-        "notes": appt.notes,
-        "status": appt.status,
-        "contact_phone_used": appt.contact_phone_used,
-        "metadata": appt.metadata,
-        "created_at": appt.created_at,
-        "updated_at": appt.updated_at,
-    }
+            appt = appointment_store.create_appointment(
+                property_ids=[item.property_id],
+                owner_id=None,
+                selection_id=None,
+                channel="chat",
+                requester=payload.user.dict(by_alias=True),
+                time_window=time_window_dict,
+                notes=item.notes or payload.notes or "",
+                status="pending",
+                contact_phone_used=payload.user.phone or "",
+                metadata={"criterios_inferidos": criterios},
+            )
 
+            created.append(
+                {
+                    "appointment_id": appt.appointment_id,
+                    "property_ids": appt.property_ids,
+                    "owner_id": appt.owner_id,
+                    "selection_id": appt.selection_id,
+                    "channel": appt.channel,
+                    "requester": appt.requester,
+                    "time_window": appt.time_window,
+                    "notes": appt.notes,
+                    "status": appt.status,
+                    "contact_phone_used": appt.contact_phone_used,
+                    "metadata": appt.metadata,
+                    "created_at": appt.created_at,
+                    "updated_at": appt.updated_at,
+                }
+            )
+
+    # 2) Flujo legacy: un solo property_id y una sola ventana de tiempo
+    elif payload.property_id:
+        time_window_dict: Dict[str, Any] = {}
+        if payload.time_window is not None:
+            if payload.time_window.from_ is not None:
+                time_window_dict["from"] = payload.time_window.from_
+            if payload.time_window.to is not None:
+                time_window_dict["to"] = payload.time_window.to
+
+        if not time_window_dict:
+            raise HTTPException(status_code=400, detail="Para agendar debe proporcionar time_window.from y/o time_window.to")
+
+        appt = appointment_store.create_appointment(
+            property_ids=[payload.property_id],
+            owner_id=None,
+            selection_id=None,
+            channel="chat",
+            requester=payload.user.dict(by_alias=True),
+            time_window=time_window_dict,
+            notes=payload.notes or "",
+            status="pending",
+            contact_phone_used=payload.user.phone or "",
+            metadata={"criterios_inferidos": criterios},
+        )
+
+        created.append(
+            {
+                "appointment_id": appt.appointment_id,
+                "property_ids": appt.property_ids,
+                "owner_id": appt.owner_id,
+                "selection_id": appt.selection_id,
+                "channel": appt.channel,
+                "requester": appt.requester,
+                "time_window": appt.time_window,
+                "notes": appt.notes,
+                "status": appt.status,
+                "contact_phone_used": appt.contact_phone_used,
+                "metadata": appt.metadata,
+                "created_at": appt.created_at,
+                "updated_at": appt.updated_at,
+            }
+        )
+    else:
+        raise HTTPException(status_code=400, detail="Para agendar debe enviar property_id o appointments")
+
+    base_response["appointments"] = created
     return base_response
 
 
@@ -292,30 +395,23 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
             predicciones_nlp = {}
 
     if predicciones_nlp:
-        if "operacion" in predicciones_nlp and "tipo_negocio" not in criterios:
-            op = str(predicciones_nlp["operacion"]).strip().lower()
-            if op == "arriendo":
-                criterios["tipo_negocio"] = "Arriendo"
-            elif op == "venta":
-                criterios["tipo_negocio"] = "Venta"
-
+        # Solo usamos ciudad del modelo NLP como respaldo cuando no se detectó por reglas.
         if "ciudad" in predicciones_nlp and "ciudad" not in criterios:
             criterios["ciudad"] = predicciones_nlp["ciudad"]
 
-        if "precio_rango" in predicciones_nlp:
-            rango_texto = str(predicciones_nlp["precio_rango"])
-            criterios_precio = _parsear_texto_a_criterios(rango_texto)
-            for k in ["precio_min", "precio_max"]:
-                if k in criterios_precio and k not in criterios:
-                    criterios[k] = criterios_precio[k]
+        # Nota: ya no usamos `operacion` ni `precio_rango` del modelo NLP para fijar
+        # tipo_negocio o rangos de precio. Solo se toman cuando el usuario los
+        # menciona explícitamente en el texto y son detectados por
+        # _parsear_texto_a_criterios.
 
-        if "parqueadero" in predicciones_nlp and "tiene_parqueadero" not in criterios:
-            try:
-                num_parq = int(predicciones_nlp["parqueadero"])
-                if num_parq >= 1:
-                    criterios["tiene_parqueadero"] = True
-            except ValueError:
-                pass
+    # Asegurar que ciertas banderas solo se mantengan si el usuario las mencionó
+    # explícitamente en el texto original.
+    t_lower = texto.lower()
+    if (
+        "tiene_parqueadero" in criterios
+        and not ("parqueadero" in t_lower or "garaje" in t_lower or "parqueo" in t_lower)
+    ):
+        criterios.pop("tiene_parqueadero", None)
 
     # Guardar una copia de los criterios originales (antes de relajar)
     criterios_originales: Dict[str, Any] = dict(criterios)
@@ -342,7 +438,7 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
             "total_retornados": 0,
             "resultados": [],
         }
-        return _maybe_schedule_appointment(payload, criterios_originales, base_response)
+        return base_response
 
     filtros_relajados: List[str] = []
 
@@ -360,12 +456,13 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
     if len(resultado) == 0:
         orden_relajacion = [
             ["precio_min", "precio_max"],
-            ["ciudad"],
-            ["tipo_negocio"],
             ["amoblado"],
             ["mascotas"],
             ["balcon"],
             ["terraza"],
+            ["tipo_negocio"],
+            ["ciudad"],
+            ["tipo"]
         ]
 
         criterios_relajados = dict(criterios_busqueda)
@@ -474,13 +571,109 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
         try:
             def _apply_affinity(row):
                 row_dict = row.to_dict()
-                score = affinity_engine.compute_affinity(criterios_originales, row_dict)
-                level = affinity_engine.classify_level(score)
-                row["affinity_score"] = float(score)
-                row["affinity_level"] = level
-                return row
+                base_score = affinity_engine.compute_affinity(criterios_originales, row_dict)
+                
+                # Calcular puntuación por coincidencia exacta en criterios mencionados explícitamente
+                exact_match_score = 0
+                criterios_mencionados = {}
+                
+                # Considerar solo los criterios mencionados explícitamente por el usuario
+                for key, value in criterios_originales.items():
+                    if key in ["ciudad", "habitaciones_min", "tipo", "precio_min", "precio_max", "banos_min"]:
+                        criterios_mencionados[key] = value
+                
+                # Verificar cada criterio mencionado
+                for criterio, valor in criterios_mencionados.items():
+                    if criterio == "habitaciones_min" and "habitaciones" in row_dict:
+                        if row_dict["habitaciones"] is not None:
+                            try:
+                                hab_prop = int(row_dict["habitaciones"])
+                                hab_crit = int(valor)
+                                if hab_prop == hab_crit:
+                                    # Coincidencia exacta en habitaciones
+                                    exact_match_score += 1000
+                                elif hab_prop > hab_crit:
+                                    # Cumple mínimo pero no es exacto
+                                    exact_match_score += 100
+                            except (ValueError, TypeError):
+                                pass
+                    
+                    elif criterio == "banos_min" and "banos" in row_dict:
+                        if row_dict["banos"] is not None:
+                            try:
+                                ban_prop = int(str(row_dict["banos"]).replace(">10", "10"))
+                                ban_crit = int(valor)
+                                if ban_prop == ban_crit:
+                                    # Coincidencia exacta en baños
+                                    exact_match_score += 1000
+                                elif ban_prop > ban_crit:
+                                    # Cumple mínimo pero no es exacto
+                                    exact_match_score += 100
+                            except (ValueError, TypeError):
+                                pass
+                                
+                    elif criterio == "ciudad" and "ciudad" in row_dict:
+                        if row_dict["ciudad"] is not None:
+                            crit_val = str(valor).strip().lower()
+                            prop_val = str(row_dict["ciudad"]).strip().lower()
+                            
+                            if crit_val == prop_val:
+                                # Coincidencia exacta en ciudad
+                                exact_match_score += 1000
+                            elif crit_val in prop_val or prop_val in crit_val:
+                                # Coincidencia parcial en ciudad
+                                exact_match_score += 100
+                    
+                    elif criterio == "tipo" and "tipo" in row_dict:
+                        if row_dict["tipo"] is not None:
+                            crit_val = str(valor).strip().lower()
+                            prop_val = str(row_dict["tipo"]).strip().lower()
+                            
+                            if crit_val == prop_val:
+                                # Coincidencia exacta en tipo
+                                exact_match_score += 1000
+                            elif crit_val in prop_val or prop_val in crit_val:
+                                # Coincidencia parcial en tipo
+                                exact_match_score += 100
+                
+                # Reducir la afinidad base si se relajaron filtros importantes y no hay coincidencia
+                filtros_criticos = ["ciudad", "tipo"]
+                if any(filtro in filtros_relajados for filtro in filtros_criticos):
+                    for filtro in filtros_criticos:
+                        if filtro in criterios_originales and filtro in row_dict:
+                            crit_val = str(criterios_originales[filtro]).strip().lower()
+                            prop_val = str(row_dict[filtro] or "").strip().lower()
+                            
+                            if not (crit_val in prop_val or prop_val in crit_val):
+                                # No hay coincidencia ni parcial
+                                base_score = min(base_score, 20.0)  # Nivel "very_low"
+                
+                level = affinity_engine.classify_level(base_score)
+                
+                # Guardar tanto la puntuación de coincidencia exacta (para ordenamiento)
+                # como la afinidad base (para mostrar al usuario)
+                return pd.Series([exact_match_score, float(base_score), level], 
+                                index=["exact_match_score", "affinity_score", "affinity_level"])
 
-            resultado_limitado = resultado_limitado.apply(_apply_affinity, axis=1)
+            # Aplicar la función de afinidad y conservar todos los datos originales
+            scores = resultado_limitado.apply(_apply_affinity, axis=1)
+            
+            # Añadir los scores al dataframe original sin perder las demás columnas
+            resultado_limitado['exact_match_score'] = scores['exact_match_score']
+            resultado_limitado['affinity_score'] = scores['affinity_score']
+            resultado_limitado['affinity_level'] = scores['affinity_level']
+
+            # Ordenar primero por coincidencia exacta, luego por afinidad y finalmente por similitud
+            sort_cols = ["exact_match_score", "affinity_score"]
+            ascending_flags = [False, False]
+            if "score_similitud" in resultado_limitado.columns:
+                sort_cols.append("score_similitud")
+                ascending_flags.append(False)
+
+            resultado_limitado = resultado_limitado.sort_values(
+                by=sort_cols,
+                ascending=ascending_flags,
+            )
         except Exception:
             pass
 
@@ -514,14 +707,13 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
         if filtros_relajados:
             detalle_relajados = ", ".join(filtros_relajados)
             mensaje = (
-                "No se encontraron inmuebles que cumplieran todos los criterios exactos, "
-                f"pero se relajaron los filtros [{detalle_relajados}] y se encontraron "
-                f"{len(resultado)} inmuebles (mostrando {len(resultado_limitado)})."
+                f"De un total de {len(resultado)} inmuebles encontrados para esta búsqueda, "
+                f"se están mostrando {len(resultado_limitado)} resultados que coinciden con tu intención. "
+                f"Se relajaron los filtros [{detalle_relajados}] para ampliar las coincidencias."
             )
         else:
             mensaje = (
-                f"Se encontraron {len(resultado)} inmuebles que coinciden con la descripción, "
-                f"mostrando {len(resultado_limitado)}."
+                f"Se encontraron {len(resultado_limitado)} inmuebles que coinciden con la descripción."
             )
 
         try:
@@ -547,7 +739,7 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
             "estadisticas": estadisticas_resultado,
             "resultados": resultado_limitado.to_dict("records"),
         }
-        return _maybe_schedule_appointment(payload, criterios_originales, base_response)
+        return base_response
 
     # 6) Caso sin resultados ni siquiera relajando filtros: usar afinidad para sugerencias
     try:
@@ -572,14 +764,98 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
 
         def _apply_affinity_suggest(row):
             row_dict = row.to_dict()
-            score = affinity_engine.compute_affinity(criterios_originales, row_dict)
-            level = affinity_engine.classify_level(score)
-            row["affinity_score"] = float(score)
-            row["affinity_level"] = level
-            return row
+            base_score = affinity_engine.compute_affinity(criterios_originales, row_dict)
+            
+            # Calcular puntuación por coincidencia exacta en criterios mencionados explícitamente
+            exact_match_score = 0
+            criterios_mencionados = {}
+            
+            # Considerar solo los criterios mencionados explícitamente por el usuario
+            for key, value in criterios_originales.items():
+                if key in ["ciudad", "habitaciones_min", "tipo", "precio_min", "precio_max", "banos_min"]:
+                    criterios_mencionados[key] = value
+            
+            # Verificar cada criterio mencionado
+            for criterio, valor in criterios_mencionados.items():
+                if criterio == "habitaciones_min" and "habitaciones" in row_dict:
+                    if row_dict["habitaciones"] is not None:
+                        try:
+                            hab_prop = int(row_dict["habitaciones"])
+                            hab_crit = int(valor)
+                            if hab_prop == hab_crit:
+                                # Coincidencia exacta en habitaciones
+                                exact_match_score += 1000
+                            elif hab_prop > hab_crit:
+                                # Cumple mínimo pero no es exacto
+                                exact_match_score += 100
+                        except (ValueError, TypeError):
+                            pass
+                
+                elif criterio == "banos_min" and "banos" in row_dict:
+                    if row_dict["banos"] is not None:
+                        try:
+                            ban_prop = int(str(row_dict["banos"]).replace(">10", "10"))
+                            ban_crit = int(valor)
+                            if ban_prop == ban_crit:
+                                # Coincidencia exacta en baños
+                                exact_match_score += 1000
+                            elif ban_prop > ban_crit:
+                                # Cumple mínimo pero no es exacto
+                                exact_match_score += 100
+                        except (ValueError, TypeError):
+                            pass
+                            
+                elif criterio == "ciudad" and "ciudad" in row_dict:
+                    if row_dict["ciudad"] is not None:
+                        crit_val = str(valor).strip().lower()
+                        prop_val = str(row_dict["ciudad"]).strip().lower()
+                        
+                        if crit_val == prop_val:
+                            # Coincidencia exacta en ciudad
+                            exact_match_score += 1000
+                        elif crit_val in prop_val or prop_val in crit_val:
+                            # Coincidencia parcial en ciudad
+                            exact_match_score += 100
+                
+                elif criterio == "tipo" and "tipo" in row_dict:
+                    if row_dict["tipo"] is not None:
+                        crit_val = str(valor).strip().lower()
+                        prop_val = str(row_dict["tipo"]).strip().lower()
+                        
+                        if crit_val == prop_val:
+                            # Coincidencia exacta en tipo
+                            exact_match_score += 1000
+                        elif crit_val in prop_val or prop_val in crit_val:
+                            # Coincidencia parcial en tipo
+                            exact_match_score += 100
+            
+            # Aplicar misma lógica de reducción para sugerencias
+            filtros_criticos = ["ciudad", "tipo"]
+            for filtro in filtros_criticos:
+                if filtro in criterios_originales and filtro in row_dict:
+                    crit_val = str(criterios_originales[filtro]).strip().lower()
+                    prop_val = str(row_dict[filtro] or "").strip().lower()
+                    
+                    if not (crit_val in prop_val or prop_val in crit_val):
+                        # No hay coincidencia ni parcial
+                        base_score = min(base_score, 20.0)  # Nivel "very_low"
+                    
+            level = affinity_engine.classify_level(base_score)
+            
+            # Guardar tanto la puntuación de coincidencia exacta como la afinidad base
+            return pd.Series([exact_match_score, float(base_score), level],
+                           index=["exact_match_score", "affinity_score", "affinity_level"])
 
-        df_base = df_base.apply(_apply_affinity_suggest, axis=1)
-        df_base = df_base.sort_values("affinity_score", ascending=False)
+        # Aplicar la función de afinidad y conservar todos los datos originales
+        scores = df_base.apply(_apply_affinity_suggest, axis=1)
+        
+        # Añadir los scores al dataframe original sin perder las demás columnas
+        df_base['exact_match_score'] = scores['exact_match_score']
+        df_base['affinity_score'] = scores['affinity_score']
+        df_base['affinity_level'] = scores['affinity_level']
+        
+        # Ordenar por los criterios establecidos
+        df_base = df_base.sort_values(["exact_match_score", "affinity_score"], ascending=[False, False])
 
         df_sugerencias = df_base[df_base["affinity_score"] > 0].head(50).copy()
 
@@ -617,8 +893,8 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
             pass
 
         mensaje = (
-            "No se encontraron inmuebles que cumplieran los criterios exactos ni relajando filtros "
-            "principales, pero se encontraron sugerencias ordenadas por afinidad."
+            f"Se encontraron {total_sugerencias} inmuebles sugeridos por afinidad con tu búsqueda. "
+            "Son resultados similares aunque no todos cumplan exactamente todos los criterios."
         )
 
         base_response = {
@@ -632,7 +908,7 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
             "estadisticas": {},
             "resultados": df_sugerencias.to_dict("records"),
         }
-        return _maybe_schedule_appointment(payload, criterios_originales, base_response)
+        return base_response
     except Exception:
         try:
             guardar_consulta_nlp(
@@ -656,4 +932,4 @@ async def buscar_nlp(payload: BuscarNLPRequest) -> Dict[str, Any]:
             "total_retornados": 0,
             "resultados": [],
         }
-        return _maybe_schedule_appointment(payload, criterios_originales, base_response)
+        return base_response

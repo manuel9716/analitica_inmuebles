@@ -38,6 +38,20 @@ class CreateAppointmentBody(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
 
 
+class BulkAppointmentItem(BaseModel):
+    property_id: str
+    time_window: TimeWindow
+    notes: Optional[str] = ""
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class BulkCreateAppointmentsBody(BaseModel):
+    channel: str = "web"
+    requester: RequesterInfo
+    owner_id: Optional[str] = None
+    items: List[BulkAppointmentItem]
+
+
 class UpdateStatusBody(BaseModel):
     status: str
 
@@ -134,6 +148,60 @@ async def create_appointment(body: CreateAppointmentBody) -> Dict[str, Any]:
         "created_at": appt.created_at,
         "updated_at": appt.updated_at,
     }
+
+
+@router.post("/bulk", summary="Crear varias citas de agendamiento")
+async def create_bulk_appointments(body: BulkCreateAppointmentsBody) -> Dict[str, Any]:
+    if not body.items:
+        raise HTTPException(status_code=400, detail="Debe proporcionar al menos un item de cita")
+
+    if not body.requester or (not body.requester.phone and not body.requester.email):
+        raise HTTPException(status_code=400, detail="Debe proporcionar al menos un medio de contacto (teléfono o email)")
+
+    created: List[Dict[str, Any]] = []
+
+    for item in body.items:
+        property_ids = [str(item.property_id)]
+        contact_phone = _resolve_contact_phone(property_ids)
+
+        time_window_dict: Dict[str, Any] = {}
+        if item.time_window.from_ is not None:
+            time_window_dict["from"] = item.time_window.from_
+        if item.time_window.to is not None:
+            time_window_dict["to"] = item.time_window.to
+
+        appt = appointment_store.create_appointment(
+            property_ids=property_ids,
+            owner_id=body.owner_id,
+            selection_id=None,
+            channel=body.channel,
+            requester=body.requester.dict(by_alias=True),
+            time_window=time_window_dict,
+            notes=item.notes or "",
+            status="pending",
+            contact_phone_used=contact_phone,
+            metadata=item.metadata,
+        )
+
+        created.append(
+            {
+                "appointment_id": appt.appointment_id,
+                "property_ids": appt.property_ids,
+                "owner_id": appt.owner_id,
+                "selection_id": appt.selection_id,
+                "channel": appt.channel,
+                "requester": appt.requester,
+                "time_window": appt.time_window,
+                "notes": appt.notes,
+                "status": appt.status,
+                "contact_phone_used": appt.contact_phone_used,
+                "metadata": appt.metadata,
+                "created_at": appt.created_at,
+                "updated_at": appt.updated_at,
+            }
+        )
+
+    return {"total": len(created), "items": created}
 
 
 @router.get("/{appointment_id}", summary="Obtener detalle de una cita")
