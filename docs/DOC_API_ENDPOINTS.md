@@ -24,7 +24,7 @@ Motor principal de búsqueda por lenguaje natural:
 
 #### Request – búsqueda + agendamiento desde selección (recomendado)
 
-```json
+```json![alt text](image.png)
 {
   "texto": "Quiero agendar visitas para estos inmuebles",
   "action": "schedule",
