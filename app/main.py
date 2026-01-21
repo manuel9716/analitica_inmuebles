@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.routes_predict import router as predict_router
 from app.api.v1.routes_providers import router as providers_router
@@ -12,6 +13,15 @@ from app.api.v1.routes_search import router as search_router
 
 
 app = FastAPI(title="Inmuebles Microservice", version="0.1.0")
+
+# Configurar CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Permitir todos los orígenes
+    allow_credentials=True,
+    allow_methods=["*"],  # Permitir todos los métodos
+    allow_headers=["*"],  # Permitir todos los headers
+)
 
 app.include_router(predict_router)
 app.include_router(providers_router)
